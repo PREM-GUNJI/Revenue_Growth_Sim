@@ -6,7 +6,7 @@ Maps the program's capability families to where they show up in this build (`doc
 |---|---|---|
 | Spec-driven development (BRD, design, task plan) | `docs/spec/` | done (Phase 0) |
 | Agent instruction engineering (CLAUDE.md, skills, hooks) | `CLAUDE.md`, `.claude/` | done (Phase 0) |
-| Agentic system design (tools, roles, guardrails) | `simulator/agent/` | pending (Phase 10-13) |
+| Agentic system design (tools, roles, guardrails) | `backend/agent/` | pending (Phase 10-13) |
 | Evaluation and baselines | `agent_evals/`, `reports/metrics.md` | pending (Phase 14) |
 | Guardrails and safe failure | Support envelope, Auditor, refusal integrity | pending (Phase 5, 12) |
 | Observability and reproducibility | Traces, hashes, replay, health endpoints | pending (Phase 6, 13) |

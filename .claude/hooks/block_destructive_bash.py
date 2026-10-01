@@ -26,6 +26,12 @@ def is_outside_repo_or_git(path: str) -> bool:
     return os.path.commonpath([REPO_ROOT, abs_path]) != REPO_ROOT
 
 
+# Splits on shell command separators so a later, unrelated path in the same
+# line (e.g. `rm -rf dist && cat /tmp/foo.log`) is never swept into the
+# rm -rf target list. Does not parse quoting/subshells; see DEFECTS.md.
+SEGMENT_SPLIT = re.compile(r"&&|\|\||;|\n")
+
+
 def main() -> int:
     payload = json.load(sys.stdin)
     command = payload.get("tool_input", {}).get("command", "")
@@ -34,15 +40,16 @@ def main() -> int:
         print("blocked: force-push is not allowed by project policy", file=sys.stderr)
         return 2
 
-    rm_match = RM_RF.search(command)
-    if rm_match:
-        targets = rm_match.group(2).split()
-        if any(is_outside_repo_or_git(t) for t in targets):
-            print(
-                "blocked: rm -rf targeting a path outside the repo or .git is not allowed",
-                file=sys.stderr,
-            )
-            return 2
+    for segment in SEGMENT_SPLIT.split(command):
+        rm_match = RM_RF.search(segment)
+        if rm_match:
+            targets = rm_match.group(2).split()
+            if any(is_outside_repo_or_git(t) for t in targets):
+                print(
+                    "blocked: rm -rf targeting a path outside the repo or .git is not allowed",
+                    file=sys.stderr,
+                )
+                return 2
 
     return 0
 

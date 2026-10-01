@@ -4,15 +4,15 @@ Project: Revenue Growth Scenario Simulator, an **agentic AI system** (not an ML 
 
 The agent is the centerpiece. The demand engine is a parametric elasticity model whose parameters are documented assumptions in the registry. **Nothing is trained or fitted. Do not add ML models, regression fitting, or model-tuning code.** Back-testing against the synthetic data is allowed; learning from it is not.
 
-## Stack (deviates from `docs/plan/PLAN.md` by agreement — see ADR-009)
-- Backend: Python 3.11 (via `uv`), FastAPI, Pydantic.
-- UI: FastAPI + Jinja2 + HTMX, server-rendered. No React, no Node, no npm dependency in the shipped app.
+## Stack (deviates from `docs/plan/PLAN.md` by agreement — see ADR-009, ADR-010)
+- Backend (`backend/`): Python 3.11 (via `uv`), FastAPI, Pydantic.
+- Frontend (`frontend/`): React + Vite + TypeScript, Tailwind v4, shadcn/ui components. Calls the FastAPI backend over HTTP.
 - LLM: Anthropic Claude via tool use, with a scripted fake LLM and a replay LLM for offline/deterministic tests.
 - Deploy: Docker + docker compose on a local VM/host. Rollback = swap the image tag.
 - No `make` on Windows dev machines: `Makefile` targets are thin wrappers over `uv run python -m tasks <target>`.
 
 ## Tool use
-- Use the Context7 MCP server proactively for library/API documentation, code generation guidance, and setup/configuration steps (FastAPI, Pydantic, Anthropic SDK, HTMX, uv, pytest-benchmark, hypothesis, etc.) — do not wait to be asked.
+- Use the Context7 MCP server proactively for library/API documentation, code generation guidance, and setup/configuration steps (FastAPI, Pydantic, Anthropic SDK, React, shadcn/ui, uv, pytest-benchmark, hypothesis, etc.) — do not wait to be asked.
 
 ## Process
 - Build phase by phase as listed in `docs/spec/TASKS.md` (derived from PLAN.md section 18 plus CAPSTONE_COMPLIANCE.md section 11). Do not start a phase until the previous phase's acceptance check passes.

@@ -2,8 +2,8 @@
 
 Placeholder (Phase 18, draft now since the boundary is an architectural decision made in Phase 0/`docs/spec/DESIGN.md`).
 
-## Runtime agent (the LLM orchestrator, `simulator/agent/`)
-- **Allowed:** calls to the typed tool functions in `simulator/agent/tools.py` only (`get_envelope`, `get_assumptions`, `get_model_info`, `evaluate_scenarios`, `sweep`, `nearest_supported`, `explain_scenario`, `run_sensitivity`, `calc`, `save_scenario`, `pareto_flags`).
+## Runtime agent (the LLM orchestrator, `backend/agent/`)
+- **Allowed:** calls to the typed tool functions in `backend/agent/tools.py` only (`get_envelope`, `get_assumptions`, `get_model_info`, `evaluate_scenarios`, `sweep`, `nearest_supported`, `explain_scenario`, `run_sensitivity`, `calc`, `save_scenario`, `pareto_flags`).
 - **Denied:** filesystem access, network access beyond the Anthropic API call itself, engine-internals access, reading `.env*` or any secret, arbitrary code execution. `calc` is an AST-whitelisted arithmetic evaluator, not `eval`.
 - **Network policy:** the agent process makes outbound calls only to the Anthropic API endpoint; no other egress.
 
