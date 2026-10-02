@@ -13,3 +13,7 @@ build/
 node_modules/
 .DS_Store
 *.log
+
+# Regenerable data artifacts: the manifest (small, hash-bearing) is
+# committed as evidence; the Parquet itself is reproduced by `make generate`.
+data/*.parquet
