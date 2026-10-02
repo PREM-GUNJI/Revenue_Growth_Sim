@@ -67,5 +67,24 @@ Full behavioural spec is `docs/plan/PLAN.md`; program requirements are `docs/pla
 - Deploy: Docker + docker compose on a local VM/host (no cloud account required); rollback = redeploy by git-SHA image tag.
 - No `make` on Windows dev machines: `Makefile` targets forward to `uv run python -m tasks <target>` (`tasks.py`), so Windows and Linux CI run identically.
 
+## Phase 0.5 spike results (throwaway scripts, not shipped)
+
+**(a) Engine perf at 10k scenarios x 201 draws (central + K=200) x 12 SKUs.** The GEMM-based design (cross-price term as one matmul, chunked over S, bands computed only on scenario aggregates) is feasible but the 10k budget (<2s) has real margin, not huge headroom, on this dev laptop:
+
+| Scenarios | best-of-5 | worst-of-5 | budget |
+|---|---|---|---|
+| 1 | 0.4ms | 0.8ms | <5ms |
+| 100 | 5.6ms | 7.5ms | <50ms |
+| 1,000 | 52.7ms | 58.8ms | <250ms |
+| 10,000 | 540ms | 1,387ms | <2,000ms |
+
+Sweep/oracle mode (`bands=false`, K=1) at 10,000 scenarios: 8.2ms — confirms the oracle (Phase 14, brute-force over ~1e6 points, run in chunks) is cheap. A follow-up micro-benchmark isolated the band computation: three separate `np.percentile` calls (one per P10/P50/P90) cost ~75ms at S=10,000/K=201 per metric; sorting once and indexing three times costs ~56ms (~25% faster) — adopt sort-once-per-metric in Phase 4/7 rather than three `np.percentile` calls, since there are 3 metrics (volume, NSV, GP) needing bands, not 1.
+
+**(b) Claude tool-use shape.** No `ANTHROPIC_API_KEY` in this sandbox, so no live call; instead validated that `BaseModel.model_json_schema()` converts cleanly to an Anthropic `input_schema`, and that the SDK's typed params (`MessageCreateParamsNonStreaming`) accept a forced `tool_choice={"type":"tool","name":"submit_plan"}` without error. Two cosmetic fixes needed in the real `to_anthropic_tool()` helper (Phase 10): strip the per-property `"title"` keys Pydantic adds, and don't duplicate the model docstring as both the tool `description` and a nested schema `description`. The real end-to-end call (does the model actually return the forced tool with sane arguments) is exercised in Phase 14 as planned — this spike only de-risks the schema plumbing, not the model's behavior.
+
+**(c) Hash quantization across platforms.** Confirmed quantize-then-hash (money/values to integer cents before canonical JSON + SHA-256) is stable across repeated fresh Windows processes (3/3 identical). **Not independently re-verified against a Linux container in this spike** — Docker Desktop was not running on this machine and starting it was out of scope for a quick spike. The mitigation (ADR-007: quantized integer outputs, golden files generated inside the Linux CI container, `OPENBLAS_NUM_THREADS=1`) is unchanged; real cross-platform parity will be proven by the `determinism` test suite running in GitHub Actions (`ubuntu-latest`) once Phase 6 lands, which is the actual gate that matters.
+
+**Decision from the spikes:** proceed to Phase 1 as planned. No architecture change; the only adjustments are the two implementation notes above (sort-once-per-metric bands; strip title/dedupe description in the tool-schema converter).
+
 ## Team ownership (3-person variant, per `docs/plan/CAPSTONE_COMPLIANCE.md` section 2)
 See `docs/TEAM.md`.
