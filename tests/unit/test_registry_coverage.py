@@ -2,12 +2,15 @@
 with a non-empty rationale and valid_range; an unregistered read fails the
 build.
 
-Full 100% coverage of every *registered* assumption isn't claimed: cost
-assumptions (A-013..A-017b) have no reader until Phase 4's margin waterfall,
-and the qualitative "no X" assumptions (A-018..A-021) are documentation-only
-declarations that are never computed. Both sets are named explicitly below so
-a future phase that wires one up (and should drop it from the exclusion set)
-shows up as a visible diff, not a silently-widening exemption.
+Full 100% coverage of every *registered* assumption isn't claimed: the
+qualitative "no X" assumptions (A-018..A-021) are documentation-only
+declarations that are never computed (named explicitly below, not silently
+excluded). Cost assumptions (A-013..A-017b) *used* to be in that same
+exclusion set pending Phase 4's margin waterfall; Phase 4's
+`backend/engine/margin.py` now reads every one of them, so they dropped out
+of the exclusion here — that shrinkage is itself the regression check: if a
+future refactor stops reading one, this test starts failing instead of the
+exemption silently widening back.
 """
 
 import pytest
@@ -16,20 +19,11 @@ from backend.assumptions import registry
 from backend.assumptions.assumptions import ASSUMPTIONS, Assumption
 from backend.assumptions.registry import _validate_rationales
 from backend.data.generator import generate
+from backend.engine.batch import evaluate_one
+from backend.engine.scenario import CostShock, Scenario
 from backend.model.backtest import run_backtest
 from backend.model.spec import DRAWABLE_ASSUMPTION_IDS, build_param_draws
 
-COST_IDS_PENDING_PHASE4 = {
-    "A-013",
-    "A-014a",
-    "A-014b",
-    "A-014c",
-    "A-014d",
-    "A-015",
-    "A-016",
-    "A-017",
-    "A-017b",
-}
 QUALITATIVE_IDS_NEVER_COMPUTED = {"A-018", "A-019", "A-020", "A-021"}
 
 
@@ -66,12 +60,15 @@ def test_every_read_id_has_a_valid_range():
         assert ASSUMPTIONS[aid].valid_range is not None
 
 
-def test_drawable_assumptions_reach_100_percent_coverage_via_model_pipeline():
+def test_drawable_and_cost_assumptions_reach_100_percent_coverage_via_full_pipeline():
     registry.reset_reads()
     draws = build_param_draws(k=10, seed=1)
     run_backtest(draws)
     generate(42)
+    evaluate_one(
+        Scenario(cost_shock=CostShock(aluminium_pct=5, pet_resin_pct=5, sugar_pct=5)), draws
+    )
 
     assert set(DRAWABLE_ASSUMPTION_IDS) <= registry.reads()
     unread = registry.unread_ids()
-    assert unread == COST_IDS_PENDING_PHASE4 | QUALITATIVE_IDS_NEVER_COMPUTED
+    assert unread == QUALITATIVE_IDS_NEVER_COMPUTED

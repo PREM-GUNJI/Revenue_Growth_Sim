@@ -60,6 +60,7 @@ def national_weekly_series(df: pd.DataFrame) -> pd.DataFrame:
 @dataclass
 class Baselines:
     baseline_volume: dict[str, float]  # per sku_id, national units/week
+    reference_price: dict[str, float]  # per sku_id, $ at price_index=1.0 (data-derived)
     price_index_p1_p99: dict[str, tuple[float, float]]
     promo_depth_observed: list[int]
     formats_observed: list[str]
@@ -91,8 +92,18 @@ def compute_baselines(weekly: pd.DataFrame, raw_df: pd.DataFrame, draws: ParamDr
     implied_a = np.log(pivot_vol.to_numpy()[last_n]) - cross[last_n] - promo_effect[last_n]
     baseline_volume = np.exp(implied_a.mean(axis=0))
 
+    # unit_price = reference_price * price_index exactly (generator.py, no noise on
+    # price itself), so the per-row ratio recovers reference_price algebraically —
+    # this is division, not a fit; the median is just robustness to float rounding.
+    reference_price = (
+        raw_df.assign(_ratio=raw_df["unit_price"] / raw_df["price_index"])
+        .groupby("sku_id", observed=True)["_ratio"]
+        .median()
+    )
+
     return Baselines(
         baseline_volume=dict(zip(SKU_IDS, baseline_volume, strict=True)),
+        reference_price={sku: float(reference_price[sku]) for sku in SKU_IDS},
         price_index_p1_p99={
             sku: (
                 float(np.percentile(raw_df.loc[raw_df.sku_id == sku, "price_index"], 1)),
