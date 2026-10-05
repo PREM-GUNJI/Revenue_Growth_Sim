@@ -5,7 +5,7 @@ Sequenced phases, derived from `docs/plan/PLAN.md` section 18 and amended by `do
 | # | Deliverable | Owner | Depends on | Acceptance check | Status |
 |---|---|---|---|---|---|
 | 0 | Repo standards, CLAUDE.md, `.claude/settings.json` + hooks, BRD v1, DESIGN v1, ADRs 1-9, TASKS, TEAM, empty evidence files, CI skeleton | D | — | CI green; hook demonstrably blocks a protected-path edit | **in progress** |
-| 0.5 | Spikes: engine at 10k×200×12 perf, Claude tool-use with forced `submit_*`, Windows/Linux hash quantization | A/B, C | 0 | Numbers recorded in DESIGN | not started |
+| 0.5 | Spikes: engine at 10k×200×12 perf, Claude tool-use with forced `submit_*`, Windows/Linux hash quantization | A/B, C | 0 | Numbers recorded in DESIGN | **done** — see DESIGN.md "Phase 0.5 spike results" |
 | — | Freeze Scenario/Result/tool Pydantic schemas + stub engine | A/B | 0.5 | Schema tests pass | not started |
 | 1 | Data generator, Parquet, manifest, EDA, no-PII test | A/B | contracts | AC-001, AC-002, AC-003 | not started |
 | 2 | Demand spec, baselines, envelope inputs, draws.npz, backtest+tornado report | A/B | 1 | AC-004 | not started |
