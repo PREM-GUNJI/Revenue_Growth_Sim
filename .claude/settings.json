@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "deny": [
+      "Edit(.env*)",
+      "Edit(reports/*.md)",
+      "Edit(tests/**/golden/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/block_destructive_bash.py"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/format_python.py"
+          }
+        ]
+      }
+    ]
+  }
+}
