@@ -14,6 +14,7 @@ node_modules/
 .DS_Store
 *.log
 
-# Regenerable data artifacts: the manifest (small, hash-bearing) is
-# committed as evidence; the Parquet itself is reproduced by `make generate`.
+# Regenerable data artifacts: the manifests (small, hash-bearing) are
+# committed as evidence; the binary artifacts are reproduced by `make generate`.
 data/*.parquet
+data/draws.npz

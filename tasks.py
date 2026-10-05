@@ -51,8 +51,7 @@ def generate() -> int:
 
 @register("backtest")
 def backtest() -> int:
-    print("not yet: Phase 2 adds reports/model_backtest.md")
-    return 0
+    return run(["uv", "run", "python", "-m", "backend.model.backtest"])
 
 
 @register("bench")

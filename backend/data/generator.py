@@ -227,7 +227,9 @@ def write_dataset(seed: int, out_dir: Path) -> dict:
         "weeks": N_WEEKS,
         "stores_per_region": STORES_PER_REGION,
     }
-    (out_dir / "data_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
+    (out_dir / "data_manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8"
+    )
     return manifest
 
 
