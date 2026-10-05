@@ -43,8 +43,10 @@ def test() -> int:
 
 @register("generate")
 def generate() -> int:
-    print("not yet: Phase 1 adds backend/data/generator.py")
-    return 0
+    code = run(["uv", "run", "python", "-m", "backend.data.generator", "42", "data"])
+    if code:
+        return code
+    return run(["uv", "run", "python", "-m", "backend.data.eda", "42"])
 
 
 @register("backtest")
