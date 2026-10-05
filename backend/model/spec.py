@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from backend.assumptions import registry
 from backend.assumptions.assumptions import (
     ASSUMPTIONS,
     CROSS_ELASTICITY_ACROSS_BRAND,
@@ -27,6 +28,9 @@ from backend.assumptions.assumptions import (
     PULL_FORWARD_SHARE,
     SKUS,
 )
+
+# Only `.id` is used from the imports above — every *value* is read through
+# `registry.get()` below so reads are tracked (CLAUDE.md engine rule).
 
 # Order matters only for reproducibility of the draws array's column layout.
 DRAWABLE_ASSUMPTION_IDS: list[str] = [
@@ -85,14 +89,17 @@ def build_param_draws(k: int = 200, seed: int = 1000, vary_only: str | None = No
     """
     rng = np.random.default_rng(seed)
 
-    def draw(assumption):
-        if vary_only is None or assumption.id == vary_only:
+    def draw(assumption_id: str) -> np.ndarray:
+        assumption = registry.get(assumption_id)  # tracked read (CLAUDE.md engine rule)
+        if vary_only is None or assumption_id == vary_only:
             return _draw_or_central(rng, assumption, k)
         return _central(assumption, k)
 
-    own_by_format = {fmt: draw(OWN_ELASTICITY_BY_FORMAT[fmt]) for fmt in OWN_ELASTICITY_BY_FORMAT}
-    within = draw(CROSS_ELASTICITY_WITHIN_BRAND)
-    across = draw(CROSS_ELASTICITY_ACROSS_BRAND)
+    own_by_format = {
+        fmt: draw(OWN_ELASTICITY_BY_FORMAT[fmt].id) for fmt in OWN_ELASTICITY_BY_FORMAT
+    }
+    within = draw(CROSS_ELASTICITY_WITHIN_BRAND.id)
+    across = draw(CROSS_ELASTICITY_ACROSS_BRAND.id)
 
     elasticity = np.zeros((k + 1, N_SKUS, N_SKUS))
     for i, si in enumerate(SKUS):
@@ -102,10 +109,10 @@ def build_param_draws(k: int = 200, seed: int = 1000, vary_only: str | None = No
                 continue
             elasticity[:, i, j] = within if si["brand"] == sj["brand"] else across
 
-    promo_k = draw(PROMO_SATURATION_K)
-    promo_b = draw(PROMO_LIFT_SCALE)
-    mech_mult = {name: draw(a) for name, a in PROMO_MECHANIC_MULTIPLIER.items()}
-    pull_forward_share = draw(PULL_FORWARD_SHARE)
+    promo_k = draw(PROMO_SATURATION_K.id)
+    promo_b = draw(PROMO_LIFT_SCALE.id)
+    mech_mult = {name: draw(a.id) for name, a in PROMO_MECHANIC_MULTIPLIER.items()}
+    pull_forward_share = draw(PULL_FORWARD_SHARE.id)
 
     return ParamDraws(
         k=k,

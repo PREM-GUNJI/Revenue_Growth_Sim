@@ -74,8 +74,8 @@ def replay() -> int:
 
 @register("serve")
 def serve() -> int:
-    print("not yet: Phase 6/8 add backend/api + frontend/")
-    return 0
+    # Phase 3 only wires up GET /assumptions; Phase 6 adds the rest of the API.
+    return run(["uv", "run", "uvicorn", "backend.api.main:app", "--reload"])
 
 
 @register("demo")
