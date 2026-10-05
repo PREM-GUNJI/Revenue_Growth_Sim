@@ -44,7 +44,15 @@ DRAWABLE_ASSUMPTION_IDS: list[str] = [
     PROMO_MECHANIC_MULTIPLIER["BOGO"].id,
     PULL_FORWARD_SHARE.id,
 ]
-assert len(DRAWABLE_ASSUMPTION_IDS) == len(set(DRAWABLE_ASSUMPTION_IDS)) == 12
+if (
+    len(DRAWABLE_ASSUMPTION_IDS) != len(set(DRAWABLE_ASSUMPTION_IDS))
+    or len(DRAWABLE_ASSUMPTION_IDS) != 12
+):
+    # Not an `assert` (bandit B101: asserts are stripped under `python -O`,
+    # which would silently skip this build-time invariant).
+    raise ValueError(
+        f"DRAWABLE_ASSUMPTION_IDS must have 12 unique ids, got {DRAWABLE_ASSUMPTION_IDS}"
+    )
 
 
 @dataclass
