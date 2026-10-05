@@ -12,4 +12,10 @@ Placeholder (Phase 18, draft now since the boundary is an architectural decision
 - Full permission model (sandbox, network, credentials) to be documented here as it's configured in later phases.
 
 ## What happens if the LLM API key leaks
-To be filled in Phase 18 alongside the secrets-handling section — expected answer: rotate the key in the secret manager, redeploy, and check `trace.jsonl` files for the key (it must never appear there since it's never passed to the model or logged).
+No secret store is wired up yet (deployment is Phase 19), so this is the intended mechanism per `docs/spec/DESIGN.md`'s deploy decisions (Docker + compose on a local VM/host, ADR-008), not evidence of a past incident:
+
+1. **Revoke** the leaked key immediately in the Anthropic Console (console.anthropic.com) — this invalidates it for every caller, including the running deployment.
+2. **Issue a new key** in the Anthropic Console and store it as: `ANTHROPIC_API_KEY` in GitHub Actions secrets for CI; on the deploy host, an untracked `.env` file (already `.gitignore`d) that only `docker compose` reads at container start — Claude Code and the runtime agent are denied read access to any `.env*` path.
+3. **Redeploy**: `docker compose up -d` (or the Phase 19 `make rollback`/redeploy target) to restart the API container with the new key picked up from `.env`. Rollback = swap the image tag; the key itself is never baked into an image layer.
+4. **Audit for exposure**: grep every `trace.jsonl` under the trace store for the leaked key value — it must return zero matches, since the key is only ever used in the outbound Anthropic SDK client (`backend/agent`) and is never logged, never placed in a tool result, and never part of the system prompt or trace record. Also check CI logs and any `reports/*.md` for the same reason. A match in a trace would itself be a defect (log it in `docs/agent-record/DEFECTS.md`), since it means the key crossed a boundary it's designed never to cross.
+5. **Confirm**: hit `/healthz`/`/readyz` post-redeploy and run the smoke test (`make smoke`, Phase 19) to confirm the new key is live and the degraded-LLM state has cleared.
