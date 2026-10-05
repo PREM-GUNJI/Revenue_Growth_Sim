@@ -8,7 +8,7 @@ Options considered:
 - A. LLM-as-judge: ask a second model "are all numbers in this answer grounded?"
 - B. Deterministic parser: the agent writes numeric placeholders bound to tool-result paths; a renderer substitutes them; any literal number remaining in prose is parsed and matched by rounding tolerance against tool/`calc` leaves.
 
-Decision: B, detailed in `simulator/agent/grounding.py` design notes in `docs/spec/DESIGN.md` and `PLAN.md` section 11.
+Decision: B, detailed in `backend/agent/grounding.py` design notes in `docs/spec/DESIGN.md` and `PLAN.md` section 11.
 
 Consequences: 100% reproducible pass/fail, no model-variance in the audit itself. It cannot catch *wrong reasoning expressed in correctly-grounded numbers* (e.g. citing a real number in a misleading frame) — this residual risk is stated in `docs/HONESTY.md` and mitigated separately by the Observed/Modeled/Assumed/Recommended label rules (ADR enforced by the Auditor, not this check).
 

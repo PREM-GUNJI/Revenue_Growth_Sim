@@ -43,7 +43,7 @@ def test() -> int:
 
 @register("generate")
 def generate() -> int:
-    print("not yet: Phase 1 adds simulator/data/generator.py")
+    print("not yet: Phase 1 adds backend/data/generator.py")
     return 0
 
 
@@ -73,7 +73,7 @@ def replay() -> int:
 
 @register("serve")
 def serve() -> int:
-    print("not yet: Phase 6/8 add simulator/api + simulator/web")
+    print("not yet: Phase 6/8 add backend/api + frontend/")
     return 0
 
 

@@ -15,7 +15,7 @@ Sequenced phases, derived from `docs/plan/PLAN.md` section 18 and amended by `do
 | 6 | API, hashing, export/import | A/B | 5 | AC-014, AC-015 | not started |
 | 7 | Benchmarks and optimisation | A/B | 6 | AC-016 | not started |
 | 10-13 | Agent tools, orchestrator (ScriptedLLM), grounding, labels, Auditor, trace+replay | C | contracts (parallel with 1-7) | AC-017, AC-018, AC-020, AC-022 | not started |
-| 8 | HTMX comparison UI (tray, table, refusal cards, drawer) | D | contracts (parallel with 1-7) | AC-024 (partial: loser+refusal) | not started |
+| 8 | React/shadcn comparison UI (tray, table, refusal cards, drawer) | D | contracts (parallel with 1-7) | AC-024 (partial: loser+refusal) | **shell scaffolded** (mock data; API wiring pending) |
 | 14 | Real Claude, ~40 agent evals, oracle, baselines | C | 7, 10-13 | AC-019, AC-021, AC-023 | not started |
 | 15 | Agent panel UI (chat, quick-start goals, Auditor badge, accept-to-board) | C | 8, 14 | AC-024 (agent board) | not started |
 | 16-17 | README (generated examples), HONESTY.md, clean-clone CI, AC traceability test, eval gate, `demo/regression` branch | D | 14, 15 | AC-025, AC-026 | not started |

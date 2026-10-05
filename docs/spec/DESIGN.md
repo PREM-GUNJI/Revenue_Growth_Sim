@@ -1,45 +1,45 @@
 # Solution Design (v1)
 
-Full behavioural spec is `docs/plan/PLAN.md`; program requirements are `docs/plan/CAPSTONE_COMPLIANCE.md`. This document records the concrete architecture and the stack decisions made with the user (see ADR-009), and is updated whenever a decision changes.
+Full behavioural spec is `docs/plan/PLAN.md`; program requirements are `docs/plan/CAPSTONE_COMPLIANCE.md`. This document records the concrete architecture and the stack decisions made with the user (see ADR-010), and is updated whenever a decision changes.
 
 ## Architecture diagram
 
 ```
                          ┌─────────────────────────────┐
-                         │        HTMX + Jinja2 UI      │  simulator/web
+                         │   React + Vite + shadcn/ui    │  frontend/
                          │  (tray, comparison table,    │
                          │   refusal cards, agent panel)│
                          └──────────────┬───────────────┘
                                         │ HTTP
                          ┌──────────────▼───────────────┐
-                         │          FastAPI API          │  simulator/api
+                         │          FastAPI API          │  backend/api
                          │ /scenarios/evaluate|sweep|... │
                          │ /assumptions /envelope /info  │
                          │ /healthz /readyz /metrics     │
                          └───┬───────────────────┬───────┘
                              │                   │
               ┌──────────────▼──────┐   ┌────────▼─────────────┐
-              │   Engine (pure,      │   │   Agent orchestrator  │  simulator/agent
+              │   Engine (pure,      │   │   Agent orchestrator  │  backend/agent
               │   deterministic)     │   │   Planner→Executor→   │
-              │  simulator/engine    │   │   Auditor over tools  │
-              │  simulator/model     │   │  calls engine via the │
-              │  simulator/assumptions│  │  same typed tool layer│
+              │  backend/engine      │   │   Auditor over tools  │
+              │  backend/model       │   │  calls engine via the │
+              │  backend/assumptions │   │  same typed tool layer│
               └──────────┬───────────┘   └────────┬──────────────┘
                          │                         │
               ┌──────────▼───────────┐   ┌─────────▼─────────────┐
               │  Parquet + manifest   │   │  Anthropic / Scripted /│
-              │  simulator/data       │   │  Replay LLM client     │
+              │  backend/data         │   │  Replay LLM client     │
               └───────────────────────┘   └────────────────────────┘
 ```
 
 ## Component responsibilities
-- **`simulator/data`**: generates the synthetic scanner dataset from a known model; owns the data manifest and hash.
-- **`simulator/assumptions`**: the single source of parameter truth (`assumptions.py`) plus the read-tracking registry (`registry.py`).
-- **`simulator/model`**: the parametric demand function, descriptive statistics (baselines, supported ranges, joint-coverage counts), and the K=200 Monte Carlo draws. No fitting.
-- **`simulator/engine`**: vectorised batch evaluation, margin waterfall/bridge, support-envelope checks, nearest-supported search, canonical IDs and result hashing. Pure functions; no I/O except reading the registry/draws/envelope artifacts.
-- **`simulator/api`**: FastAPI routes, Pydantic schemas, health/readiness/metrics endpoints. Thin — delegates all computation to `engine`.
-- **`simulator/web`**: server-rendered HTMX/Jinja2 UI that calls the API. No business logic.
-- **`simulator/agent`**: orchestrator (Planner/Executor/Auditor loop), typed tools wrapping the engine API, grounding/label/calc checks, trace writer and replay.
+- **`backend/data`**: generates the synthetic scanner dataset from a known model; owns the data manifest and hash.
+- **`backend/assumptions`**: the single source of parameter truth (`assumptions.py`) plus the read-tracking registry (`registry.py`).
+- **`backend/model`**: the parametric demand function, descriptive statistics (baselines, supported ranges, joint-coverage counts), and the K=200 Monte Carlo draws. No fitting.
+- **`backend/engine`**: vectorised batch evaluation, margin waterfall/bridge, support-envelope checks, nearest-supported search, canonical IDs and result hashing. Pure functions; no I/O except reading the registry/draws/envelope artifacts.
+- **`backend/api`**: FastAPI routes, Pydantic schemas, health/readiness/metrics endpoints. Thin — delegates all computation to `engine`.
+- **`backend/agent`**: orchestrator (Planner/Executor/Auditor loop), typed tools wrapping the engine API, grounding/label/calc checks, trace writer and replay.
+- **`frontend/`**: React + Vite + TypeScript app styled with Tailwind v4 and shadcn/ui components; calls the FastAPI backend over HTTP (proxied at `/api` in dev). No business logic.
 
 ## Data flow (one scenario evaluation)
 1. UI or agent tool call sends a `Scenario` to `POST /scenarios/evaluate`.
@@ -60,9 +60,9 @@ Full behavioural spec is `docs/plan/PLAN.md`; program requirements are `docs/pla
 - **Support envelope miss (false SUPPORTED)**: caught by the refusal suite's precision/recall gate in CI before merge.
 - **Performance budget miss**: benchmarks gate CI; a regression blocks the PR.
 
-## Stack decisions (deviate from `docs/plan/PLAN.md`'s default stack — see ADR-009)
-- Backend: Python 3.11 via `uv`, FastAPI, Pydantic.
-- UI: FastAPI + Jinja2 + HTMX, server-rendered, no React/Node/npm in the shipped app. Chosen so a 3-person team works in one language end to end.
+## Stack decisions (deviate from `docs/plan/PLAN.md`'s default stack — see ADR-009, ADR-010)
+- Backend: Python 3.11 via `uv`, FastAPI, Pydantic, in `backend/`.
+- Frontend: React + Vite + TypeScript, Tailwind v4, shadcn/ui components, in `frontend/`. Calls the FastAPI backend over HTTP.
 - LLM: Anthropic Claude via tool use; `ScriptedLLM`/`ReplayLLM` for deterministic offline tests (Phase 10-13), real Anthropic client wired in Phase 14.
 - Deploy: Docker + docker compose on a local VM/host (no cloud account required); rollback = redeploy by git-SHA image tag.
 - No `make` on Windows dev machines: `Makefile` targets forward to `uv run python -m tasks <target>` (`tasks.py`), so Windows and Linux CI run identically.

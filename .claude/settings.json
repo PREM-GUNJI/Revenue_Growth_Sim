@@ -13,7 +13,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python .claude/hooks/block_destructive_bash.py"
+            "command": "python \"${CLAUDE_PROJECT_DIR}/.claude/hooks/block_destructive_bash.py\""
           }
         ]
       }
@@ -24,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python .claude/hooks/format_python.py"
+            "command": "python \"${CLAUDE_PROJECT_DIR}/.claude/hooks/format_python.py\""
           }
         ]
       }
