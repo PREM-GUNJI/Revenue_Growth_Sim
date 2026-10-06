@@ -140,10 +140,12 @@ def nearest_supported(scenario: Scenario, envelope: SupportEnvelope) -> NearestS
     for _ in range(N_PRICE_BINS):
         if decision.status != "REFUSED":
             break
-        for sku in SKU_IDS:
+        gap_skus = {reason.sku_id for reason in decision.reasons if reason.lever == "joint_support"}
+        for sku in gap_skus:
             lv = candidate.levers[sku]
             lo, hi = envelope.baselines.price_index_p1_p99[sku]
-            lv.price_index = max(lo, min(hi, lv.price_index - step))
+            if lv.promo_depth_pct > 0:
+                lv.price_index = max(lo, min(hi, lv.price_index - step))
         decision = envelope.check(candidate)
     if decision.status == "REFUSED":
         # The untouched baseline is the guaranteed fallback suggestion.
