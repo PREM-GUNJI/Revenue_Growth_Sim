@@ -8,7 +8,6 @@ from backend.assumptions.assumptions import SKU_IDS
 from backend.engine.batch import evaluate_one
 from backend.engine.scenario import Lever, Scenario
 from backend.model.spec import build_param_draws
-from tests.property._strategies import SUPPORTED_PRICE_HI, SUPPORTED_PRICE_LO
 
 DRAWS = build_param_draws(k=0, seed=1)  # central-only: isolates the deterministic formula
 
@@ -16,11 +15,11 @@ DRAWS = build_param_draws(k=0, seed=1)  # central-only: isolates the determinist
 @settings(deadline=None)
 @given(
     sku=st.sampled_from(SKU_IDS),
-    p_low=st.floats(min_value=SUPPORTED_PRICE_LO, max_value=SUPPORTED_PRICE_HI - 0.001, allow_nan=False),
+    p_low=st.floats(min_value=0.5, max_value=1.95, allow_nan=False),
     delta=st.floats(min_value=0.001, max_value=0.05, allow_nan=False),
 )
 def test_higher_price_never_increases_own_volume(sku, p_low, delta):
-    p_high = min(p_low + delta, SUPPORTED_PRICE_HI)
+    p_high = min(p_low + delta, 2.0)
     if p_high <= p_low:
         return
     vol_low = (

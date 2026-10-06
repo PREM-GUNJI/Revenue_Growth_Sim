@@ -56,7 +56,8 @@ def backtest() -> int:
 
 @register("bench")
 def bench() -> int:
-    return run(["uv", "run", "python", "benchmarks/bench_engine.py"])
+    print("not yet: Phase 7 adds benchmarks/bench_engine.py")
+    return 0
 
 
 @register("evaluate")

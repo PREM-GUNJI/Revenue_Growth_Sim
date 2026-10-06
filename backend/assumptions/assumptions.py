@@ -305,42 +305,6 @@ PACK_CHANGES_OBSERVED_SIZES_ONLY = Assumption(
     source="data-derived",
     rationale="Only the 4 catalog formats exist in the data; any other size is REFUSED.",
 )
-JOINT_SUPPORT_MIN_ROWS = Assumption(
-    id="A-022",
-    label="Minimum local rows for joint support",
-    value=1,
-    unit="rows",
-    source="modelling-choice",
-    rationale="At least one observation in the price-bin neighbourhood is required; empty joint cells are refused.",
-    valid_range=(1, 100),
-)
-JOINT_SUPPORT_COMFORT_ROWS = Assumption(
-    id="A-023",
-    label="Comfortable local support row count",
-    value=10,
-    unit="rows",
-    source="modelling-choice",
-    rationale="Sparse occupied neighbourhoods remain evaluable but are labelled EDGE below this count.",
-    valid_range=(1, 1000),
-)
-SCENARIO_CHUNK_SIZE = Assumption(
-    id="A-024",
-    label="Scenario evaluation chunk size",
-    value=2048,
-    unit="scenarios",
-    source="modelling-choice",
-    rationale="Bounds temporary array memory while keeping each scenario chunk vectorised across draws and SKUs.",
-    valid_range=(32, 2048),
-)
-SUPPORT_DECISION_CACHE_SIZE = Assumption(
-    id="A-025",
-    label="Support decision cache size",
-    value=32768,
-    unit="entries",
-    source="modelling-choice",
-    rationale="Bounds memory used to reuse deterministic support decisions for repeated scenario levers.",
-    valid_range=(128, 131072),
-)
 
 ASSUMPTIONS: dict[str, Assumption] = {
     **{a.id: a for a in OWN_ELASTICITY_BY_FORMAT.values()},
@@ -360,10 +324,6 @@ ASSUMPTIONS: dict[str, Assumption] = {
     NO_DISTRIBUTION_CHANGES.id: NO_DISTRIBUTION_CHANGES,
     STATIONARY_SEASONALITY.id: STATIONARY_SEASONALITY,
     PACK_CHANGES_OBSERVED_SIZES_ONLY.id: PACK_CHANGES_OBSERVED_SIZES_ONLY,
-    JOINT_SUPPORT_MIN_ROWS.id: JOINT_SUPPORT_MIN_ROWS,
-    JOINT_SUPPORT_COMFORT_ROWS.id: JOINT_SUPPORT_COMFORT_ROWS,
-    SCENARIO_CHUNK_SIZE.id: SCENARIO_CHUNK_SIZE,
-    SUPPORT_DECISION_CACHE_SIZE.id: SUPPORT_DECISION_CACHE_SIZE,
 }
 
 

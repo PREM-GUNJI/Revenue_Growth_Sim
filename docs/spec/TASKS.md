@@ -11,9 +11,9 @@ Sequenced phases, derived from `docs/plan/PLAN.md` section 18 and amended by `do
 | 2 | Demand spec, baselines, envelope inputs, draws.npz, backtest+tornado report | A/B | 1 | AC-004 | **done** — MAPE 5.3%, band coverage 57.1%, tornado ranking stable across seeds, 20 tests green |
 | 3 | Assumptions registry, read-tracking, `GET /assumptions` | A/B | 2 | AC-005 | **done** — 12 drawable ids at 100% coverage via the model pipeline; cost (A-013..A-017b) and qualitative (A-018..A-021) ids explicitly exempted pending Phase 4; 7 tests green |
 | 4 | Vectorised engine, margin waterfall/bridge, baseline, IDs | A/B | 3 | AC-006..009 | **done** — `backend/engine/{scenario,ids,margin,batch}.py`; 4 Hypothesis property tests (AC-006..009) + unit tests, 58 total green |
-| 5 | Support envelope, refusal output, nearest-supported, 500+ labelled refusal set | A/B | 4 | AC-010, AC-011, AC-012, AC-013 | **done** — per-SKU percentile/depth/joint checks; REFUSED results contain no metrics; separate nearest suggestion; sparse EDGE bands widened; 500 labelled cases, refusal/property suite green |
-| 6 | API, hashing, export/import | A/B | 5 | AC-014, AC-015 | **done** — evaluate/sweep/nearest/envelope/model-info APIs; versioned export/import recomputes and verifies hashes; 67 full-suite tests green |
-| 7 | Benchmarks and optimisation | A/B | 6 | AC-016 | **in progress** — reproducible K=200 benchmark and chunk/bulk-quantile/vectorized-bridge optimizations added; current p95 misses 100/1k/10k budgets (51.33/455.33/4,492.36 ms versus <50/250/2,000 ms) |
+| 5 | Support envelope, refusal output, nearest-supported, 500+ labelled refusal set | A/B | 4 | AC-010, AC-011, AC-012, AC-013 | not started |
+| 6 | API, hashing, export/import | A/B | 5 | AC-014, AC-015 | not started |
+| 7 | Benchmarks and optimisation | A/B | 6 | AC-016 | not started |
 | 10-13 | Agent tools, orchestrator (ScriptedLLM), grounding, labels, Auditor, trace+replay | C | contracts (parallel with 1-7) | AC-017, AC-018, AC-020, AC-022 | not started |
 | 8 | React/shadcn comparison UI (tray, table, refusal cards, drawer) | D | contracts (parallel with 1-7) | AC-024 (partial: loser+refusal) | **shell scaffolded** (mock data; API wiring pending) |
 | 14 | Real Claude, ~40 agent evals, oracle, baselines | C | 7, 10-13 | AC-019, AC-021, AC-023 | not started |

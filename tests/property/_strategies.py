@@ -2,17 +2,26 @@
 
 from hypothesis import strategies as st
 
-from backend.assumptions.assumptions import SKU_IDS
-from backend.engine.batch import _baseline
+from backend.assumptions.assumptions import PROMO_MECHANICS, SKU_IDS
 from backend.engine.scenario import CostShock, Lever, Scenario
 
-_BASELINES = _baseline()
-SUPPORTED_PRICE_LO = max(v[0] for v in _BASELINES.price_index_p1_p99.values())
-SUPPORTED_PRICE_HI = min(v[1] for v in _BASELINES.price_index_p1_p99.values())
-PRICE_INDEX = st.floats(min_value=SUPPORTED_PRICE_LO, max_value=SUPPORTED_PRICE_HI, allow_nan=False)
+PRICE_INDEX = st.floats(min_value=0.5, max_value=2.0, allow_nan=False)
+DEPTH_PCT = st.floats(min_value=0.0, max_value=100.0, allow_nan=False)
+WEEKS = st.floats(min_value=0.0, max_value=4.0, allow_nan=False)
 PCT_SHOCK = st.floats(min_value=-50.0, max_value=200.0, allow_nan=False)
 
-lever_strategy = st.one_of(st.just(Lever()), st.builds(Lever, price_index=PRICE_INDEX))
+non_none_mechanics = [m for m in PROMO_MECHANICS if m != "none"]
+
+lever_strategy = st.one_of(
+    st.just(Lever()),
+    st.builds(
+        Lever,
+        price_index=PRICE_INDEX,
+        promo_depth_pct=DEPTH_PCT,
+        mechanic=st.sampled_from(non_none_mechanics),
+        promo_weeks_per_month=WEEKS,
+    ),
+)
 
 cost_shock_strategy = st.builds(
     CostShock, aluminium_pct=PCT_SHOCK, pet_resin_pct=PCT_SHOCK, sugar_pct=PCT_SHOCK

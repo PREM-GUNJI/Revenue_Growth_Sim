@@ -6,11 +6,8 @@ that Phase 2/3 only reserved ids for.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
-
-import numpy as np
 
 from backend.assumptions import registry
 from backend.assumptions.assumptions import PACK_SIZE_L
@@ -29,23 +26,7 @@ _PACKAGING_ID_BY_FORMAT = {
 
 
 def _cents(dollars: float) -> int:
-    scaled = dollars * 100.0
-    fractional = abs(scaled) - math.floor(abs(scaled))
-    if abs(fractional - 0.5) > 1e-10:
-        return math.floor(scaled + 0.5) if scaled >= 0 else math.ceil(scaled - 0.5)
     return int(Decimal(str(dollars)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
-
-
-def _cents_array(dollars: np.ndarray) -> np.ndarray:
-    """Vectorised half-up cents conversion with exact Decimal handling at ties."""
-    scaled = dollars * 100.0
-    rounded = np.where(scaled >= 0, np.floor(scaled + 0.5), np.ceil(scaled - 0.5)).astype(np.int64)
-    fraction = np.abs(scaled) - np.floor(np.abs(scaled))
-    ties = np.argwhere(np.abs(fraction - 0.5) <= 1e-10)
-    for index in ties:
-        idx = tuple(index)
-        rounded[idx] = _cents(float(dollars[idx]))
-    return rounded
 
 
 def cogs_per_unit(fmt: str, cost_shock: CostShock) -> float:

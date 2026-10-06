@@ -22,13 +22,11 @@ import numpy as np
 from backend.assumptions import registry
 from backend.assumptions.assumptions import FORMATS, N_SKUS, SKU_IDS, SKUS
 from backend.data.generator import generate
-from backend.engine.ids import ExpandedScenario, expand_scenario, result_hash, scenario_id
-from backend.engine.margin import Bridge, _cents_array, cogs_per_unit, retailer_risk
+from backend.engine.ids import expand_scenario, result_hash, scenario_id
+from backend.engine.margin import Bridge, build_bridge, cogs_per_unit, retailer_risk
 from backend.engine.scenario import CostShock, Scenario
-from backend.engine.support import SupportEnvelope, nearest_supported
 from backend.model.backtest import spec_hash
 from backend.model.baselines import Baselines, compute_baselines, national_weekly_series
-from backend.model.envelope_build import build_joint_coverage
 from backend.model.spec import (
     ParamDraws,
     average_monthly_promo_log_effect,
@@ -36,7 +34,7 @@ from backend.model.spec import (
     cross_price_log_effect,
 )
 
-ENGINE_VERSION = "1.1.0"
+ENGINE_VERSION = "1.0.0"
 SKU_FORMAT = {s["sku_id"]: s["format"] for s in SKUS}
 
 
@@ -52,12 +50,6 @@ def _baseline() -> Baselines:
 def _data_hash() -> str:
     manifest = json.loads(Path("data/data_manifest.json").read_text())
     return manifest["data_sha256"]
-
-
-@lru_cache(maxsize=1)
-def _support_envelope() -> SupportEnvelope:
-    raw = generate(42)
-    return SupportEnvelope(_baseline(), build_joint_coverage(raw))
 
 
 def _model_hash(draws: ParamDraws) -> str:
@@ -82,37 +74,31 @@ def _band(draw_values: np.ndarray) -> Band:
     tail = draw_values[1:]
     if tail.size == 0:
         return Band(value=central, p10=central, p50=central, p90=central)
-    p10, p50, p90 = np.percentile(tail, (10, 50, 90))
-    return Band(value=central, p10=float(p10), p50=float(p50), p90=float(p90))
-
-
-def _band_at(values: np.ndarray, quantiles: np.ndarray, si: int, ji: int) -> Band:
-    return Band(value=float(values[0, si, ji]), p10=float(quantiles[0, si, ji]),
-                p50=float(quantiles[1, si, ji]), p90=float(quantiles[2, si, ji]))
+    return Band(
+        value=central,
+        p10=float(np.percentile(tail, 10)),
+        p50=float(np.percentile(tail, 50)),
+        p90=float(np.percentile(tail, 90)),
+    )
 
 
 @dataclass
 class ScenarioResult:
     scenario_id: str
-    status: str
+    status: str  # Phase 5 adds REFUSED/EDGE; this module only ever returns SUPPORTED
     volume: dict[str, Band]
     gsv: dict[str, Band]
     nsv: dict[str, Band]
     gp: dict[str, Band]
-    portfolio_gp: Band | None
+    portfolio_gp: Band
     bridge: dict[str, Bridge]
     retailer_risk_skus: list[str]
     result_hash: str
-    refusal_reasons: list[dict]
-    nearest_supported_scenario: Scenario | None
 
 
-def _evaluate_chunk(
-    scenarios: list[Scenario], draws: ParamDraws, expanded: list[ExpandedScenario]
-) -> list[ScenarioResult]:
+def evaluate_batch(scenarios: list[Scenario], draws: ParamDraws) -> list[ScenarioResult]:
     baselines = _baseline()
-    envelope = _support_envelope()
-    decisions = [envelope.check(scenario) for scenario in scenarios]
+    expanded = [expand_scenario(s) for s in scenarios]
     s_count = len(scenarios)
 
     ln_price = np.zeros((s_count, N_SKUS))
@@ -158,120 +144,45 @@ def _evaluate_chunk(
             cogs_unit[si, ji] = cogs_per_unit(SKU_FORMAT[sku], scenario.cost_shock)
     cogs_all = cogs_unit[None, :, :] * vol3
 
-    trade_base_all = fixed_trade_pct * price_base * base_vec[None, :]
-    cogs_base_units = np.array([cogs_unit_base_by_format[SKU_FORMAT[sku]] for sku in SKU_IDS])
-    cogs_base_all = cogs_base_units[None, :] * base_vec[None, :]
-    bridge_dollars = np.stack(
-        (
-            (price_final - price_base) * base_vec[None, :],
-            price_final * (vol1[0] - base_vec[None, :]),
-            price_final * (vol2[0] - vol1[0]),
-            price_final * (vol3[0] - vol2[0]),
-            trade_base_all - trade_all[0],
-            cogs_base_all - cogs_all[0],
-        ),
-        axis=0,
-    )
-    bridge_cents = _cents_array(bridge_dollars)
-    gp_base_all = price_base * base_vec[None, :] - trade_base_all - cogs_base_all
-    gp_final_all = price_final * vol3[0] - trade_all[0] - cogs_all[0]
-    total_bridge_cents = _cents_array(gp_final_all) - _cents_array(gp_base_all)
-    residual = total_bridge_cents - bridge_cents.sum(axis=0)
-    target = np.argmax(np.abs(bridge_dollars), axis=0)
-    for component in range(bridge_cents.shape[0]):
-        mask = target == component
-        bridge_cents[component][mask] += residual[mask]
-
     nsv_all = gsv_all - trade_all
     gp_all = nsv_all - cogs_all
     portfolio_gp_all = gp_all.sum(axis=2)  # (K+1, S)
-
-    # Quantiles are computed in bulk per metric and chunk, avoiding hundreds
-    # of thousands of tiny sorting calls at 10,000 scenarios.
-    if draws.k:
-        volume_q = np.percentile(vol3[1:], (10, 50, 90), axis=0)
-        gsv_q = np.percentile(gsv_all[1:], (10, 50, 90), axis=0)
-        nsv_q = np.percentile(nsv_all[1:], (10, 50, 90), axis=0)
-        gp_q = np.percentile(gp_all[1:], (10, 50, 90), axis=0)
-        portfolio_q = np.percentile(portfolio_gp_all[1:], (10, 50, 90), axis=0)
-    else:
-        volume_q = np.repeat(vol3[:1], 3, axis=0)
-        gsv_q = np.repeat(gsv_all[:1], 3, axis=0)
-        nsv_q = np.repeat(nsv_all[:1], 3, axis=0)
-        gp_q = np.repeat(gp_all[:1], 3, axis=0)
-        portfolio_q = np.repeat(portfolio_gp_all[:1], 3, axis=0)
 
     mh = _model_hash(draws)
     dh = _data_hash()
     rvh = spec_hash()
 
-    scenario_ids: list[str] = []
-    ids_by_key: dict[tuple, str] = {}
-    for item in expanded:
-        key = (
-            item.schema_version,
-            tuple((sku, lv.price_bp, lv.depth_pct, lv.mechanic, lv.weeks_per_month)
-                  for sku, lv in item.levers.items()),
-            tuple(sorted(item.cost_shock.items())),
-        )
-        sid = ids_by_key.get(key)
-        if sid is None:
-            sid = scenario_id(item)
-            ids_by_key[key] = sid
-        scenario_ids.append(sid)
-
     results = []
     for si, e in enumerate(expanded):
-        sid = scenario_ids[si]
-        decision = decisions[si]
-        if decision.status == "REFUSED":
-            reasons = [reason.message for reason in decision.reasons]
-            rh = result_hash(
-                scenario_id_=sid,
-                engine_version=ENGINE_VERSION,
-                model_hash=mh,
-                data_hash=dh,
-                registry_values_hash=rvh,
-                k=draws.k,
-                seed=draws.seed,
-                status="REFUSED",
-                reasons=reasons,
-                outputs_quantized={},
-            )
-            suggested = nearest_supported(scenarios[si], envelope).scenario
-            results.append(ScenarioResult(
-                scenario_id=sid, status="REFUSED", volume={}, gsv={}, nsv={}, gp={},
-                portfolio_gp=None, bridge={}, retailer_risk_skus=[], result_hash=rh,
-                refusal_reasons=[vars(reason) for reason in decision.reasons],
-                nearest_supported_scenario=suggested,
-            ))
-            continue
+        sid = scenario_id(e)
         volume_bands, gsv_bands, nsv_bands, gp_bands, bridge = {}, {}, {}, {}, {}
         flagged = []
         outputs_quantized: dict[str, dict] = {}
 
         for ji, sku in enumerate(SKU_IDS):
-            volume_bands[sku] = _band_at(vol3, volume_q, si, ji)
-            gsv_bands[sku] = _band_at(gsv_all, gsv_q, si, ji)
-            nsv_bands[sku] = _band_at(nsv_all, nsv_q, si, ji)
-            gp_bands[sku] = _band_at(gp_all, gp_q, si, ji)
-
-            if decision.status == "EDGE":
-                # Explicitly widen all reported intervals on sparse support.
-                for band in (volume_bands[sku], gsv_bands[sku], nsv_bands[sku], gp_bands[sku]):
-                    radius = max(abs(band.value - band.p10), abs(band.p90 - band.value))
-                    band.p10 = max(0.0, band.p10 - radius * 0.5)
-                    band.p90 += radius * 0.5
+            volume_bands[sku] = _band(vol3[:, si, ji])
+            gsv_bands[sku] = _band(gsv_all[:, si, ji])
+            nsv_bands[sku] = _band(nsv_all[:, si, ji])
+            gp_bands[sku] = _band(gp_all[:, si, ji])
 
             lv = e.levers[sku]
-            bridge[sku] = Bridge(
-                price_cents=int(bridge_cents[0, si, ji]),
-                volume_cents=int(bridge_cents[1, si, ji]),
-                cross_pack_cents=int(bridge_cents[2, si, ji]),
-                promo_cents=int(bridge_cents[3, si, ji]),
-                trade_cents=int(bridge_cents[4, si, ji]),
-                cogs_cents=int(bridge_cents[5, si, ji]),
-                total_cents=int(total_bridge_cents[si, ji]),
+            fmt = SKU_FORMAT[sku]
+            price_base_i = float(price_base[si, ji])
+            price_final_i = float(price_final[si, ji])
+            trade_base_i = fixed_trade_pct * price_base_i * float(base_vec[ji])
+            cogs_base_i = cogs_unit_base_by_format[fmt] * float(base_vec[ji])
+
+            bridge[sku] = build_bridge(
+                price_base=price_base_i,
+                price_final=price_final_i,
+                vol0=float(base_vec[ji]),
+                vol1=float(vol1[0, si, ji]),
+                vol2=float(vol2[0, si, ji]),
+                vol3=float(vol3[0, si, ji]),
+                trade_base=trade_base_i,
+                trade_final=float(trade_all[0, si, ji]),
+                cogs_base=cogs_base_i,
+                cogs_final=float(cogs_all[0, si, ji]),
             )
             if retailer_risk(lv.price_bp / 1000.0):
                 flagged.append(sku)
@@ -291,7 +202,7 @@ def _evaluate_chunk(
             registry_values_hash=rvh,
             k=draws.k,
             seed=draws.seed,
-            status=decision.status,
+            status="SUPPORTED",
             reasons=[],
             outputs_quantized=outputs_quantized,
         )
@@ -299,51 +210,18 @@ def _evaluate_chunk(
         results.append(
             ScenarioResult(
                 scenario_id=sid,
-                status=decision.status,
+                status="SUPPORTED",
                 volume=volume_bands,
                 gsv=gsv_bands,
                 nsv=nsv_bands,
                 gp=gp_bands,
-                portfolio_gp=Band(value=float(portfolio_gp_all[0, si]),
-                                  p10=float(portfolio_q[0, si]),
-                                  p50=float(portfolio_q[1, si]),
-                                  p90=float(portfolio_q[2, si])),
+                portfolio_gp=_band(portfolio_gp_all[:, si]),
                 bridge=bridge,
                 retailer_risk_skus=flagged,
                 result_hash=rh,
-                refusal_reasons=[],
-                nearest_supported_scenario=None,
             )
         )
 
-    return results
-
-
-def evaluate_batch(scenarios: list[Scenario], draws: ParamDraws) -> list[ScenarioResult]:
-    """Evaluate in bounded, fully vectorised scenario chunks to cap peak memory."""
-    if not scenarios:
-        return []
-    chunk_size = int(registry.get("A-024").value)
-    expanded_by_request: dict[tuple, ExpandedScenario] = {}
-    expanded = []
-    for scenario in scenarios:
-        key = (
-            scenario.schema_version,
-            tuple((sku, scenario.levers[sku].price_index,
-                   scenario.levers[sku].promo_depth_pct, scenario.levers[sku].mechanic,
-                   scenario.levers[sku].promo_weeks_per_month)
-                  for sku in SKU_IDS if sku in scenario.levers),
-            tuple(sorted(scenario.cost_shock.model_dump().items())),
-        )
-        item = expanded_by_request.get(key)
-        if item is None:
-            item = expand_scenario(scenario)
-            expanded_by_request[key] = item
-        expanded.append(item)
-    results: list[ScenarioResult] = []
-    for start in range(0, len(scenarios), chunk_size):
-        end = start + chunk_size
-        results.extend(_evaluate_chunk(scenarios[start:end], draws, expanded[start:end]))
     return results
 
 
