@@ -23,7 +23,7 @@ from backend.assumptions import registry
 from backend.assumptions.assumptions import FORMATS, N_SKUS, SKU_IDS, SKUS
 from backend.data.generator import generate
 from backend.engine.ids import ExpandedScenario, expand_scenario, result_hash, scenario_id
-from backend.engine.margin import Bridge, _cents_array, cogs_per_unit, retailer_risk
+from backend.engine.margin import Bridge, _cents_array, cogs_per_unit
 from backend.engine.scenario import CostShock, Scenario
 from backend.engine.support import SupportEnvelope, nearest_supported
 from backend.model.backtest import spec_hash
@@ -132,7 +132,10 @@ def _evaluate_chunk(
     diag_e = np.diagonal(draws.elasticity, axis1=1, axis2=2)  # (K+1, N_SKUS)
     own_effect = diag_e[:, None, :] * ln_price[None, :, :]  # (K+1, S, N_SKUS)
     cross_effect = cross_price_log_effect(ln_price, draws.elasticity)  # (K+1, S, N_SKUS), own+cross
-    promo_effect = average_monthly_promo_log_effect(depth, mech, weeks, draws)  # (K+1, S, N_SKUS)
+    if np.any(depth):
+        promo_effect = average_monthly_promo_log_effect(depth, mech, weeks, draws)
+    else:
+        promo_effect = np.zeros_like(own_effect)
 
     base_vec = np.array([baselines.baseline_volume[s] for s in SKU_IDS])  # (N_SKUS,)
     ln_base = np.log(base_vec)
@@ -152,14 +155,17 @@ def _evaluate_chunk(
     trade_all = fixed_trade_pct * gsv_all + promo_share[None, :, :] * gsv_all
 
     cogs_unit_base_by_format = {fmt: cogs_per_unit(fmt, CostShock()) for fmt in FORMATS}
-    cogs_unit = np.zeros((s_count, N_SKUS))
-    for si, scenario in enumerate(scenarios):
-        for ji, sku in enumerate(SKU_IDS):
-            cogs_unit[si, ji] = cogs_per_unit(SKU_FORMAT[sku], scenario.cost_shock)
+    cogs_base_units = np.array([cogs_unit_base_by_format[SKU_FORMAT[sku]] for sku in SKU_IDS])
+    if all(not any(s.cost_shock.model_dump().values()) for s in scenarios):
+        cogs_unit = np.broadcast_to(cogs_base_units, (s_count, N_SKUS))
+    else:
+        cogs_unit = np.zeros((s_count, N_SKUS))
+        for si, scenario in enumerate(scenarios):
+            for ji, sku in enumerate(SKU_IDS):
+                cogs_unit[si, ji] = cogs_per_unit(SKU_FORMAT[sku], scenario.cost_shock)
     cogs_all = cogs_unit[None, :, :] * vol3
 
     trade_base_all = fixed_trade_pct * price_base * base_vec[None, :]
-    cogs_base_units = np.array([cogs_unit_base_by_format[SKU_FORMAT[sku]] for sku in SKU_IDS])
     cogs_base_all = cogs_base_units[None, :] * base_vec[None, :]
     bridge_dollars = np.stack(
         (
@@ -221,6 +227,11 @@ def _evaluate_chunk(
         scenario_ids.append(sid)
 
     results = []
+    hurdle = registry.get("A-017").value
+    pass_through = registry.get("A-017b").value
+    price_index = price_bp / 1000.0
+    shelf_rel = 1.0 + (price_index - 1.0) * pass_through
+    retailer_risk_mask = 1.0 - price_index * (1.0 - hurdle) / shelf_rel < hurdle
     for si, e in enumerate(expanded):
         sid = scenario_ids[si]
         decision = decisions[si]
@@ -273,7 +284,7 @@ def _evaluate_chunk(
                 cogs_cents=int(bridge_cents[5, si, ji]),
                 total_cents=int(total_bridge_cents[si, ji]),
             )
-            if retailer_risk(lv.price_bp / 1000.0):
+            if retailer_risk_mask[si, ji]:
                 flagged.append(sku)
 
             outputs_quantized[sku] = {

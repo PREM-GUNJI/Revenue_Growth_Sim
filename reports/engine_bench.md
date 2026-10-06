@@ -8,9 +8,9 @@ Each evaluation uses K=200 draws and a fixed seed (42).
 
 | Scenarios | p95 (ms) | Best (ms) | Worst (ms) | Budget (ms) | Result |
 |---:|---:|---:|---:|---:|:---:|
-| 1 | 1.31 | 1.04 | 1.34 | <5 | PASS |
-| 100 | 51.33 | 39.19 | 52.62 | <50 | FAIL |
-| 1,000 | 455.33 | 394.78 | 459.61 | <250 | FAIL |
-| 10,000 | 4492.36 | 4371.80 | 4498.75 | <2,000 | FAIL |
+| 1 | 1.86 | 1.41 | 1.90 | <5 | PASS |
+| 100 | 54.44 | 40.44 | 55.87 | <50 | FAIL |
+| 1,000 | 403.08 | 371.30 | 405.98 | <250 | FAIL |
+| 10,000 | 4724.61 | 4091.98 | 4768.83 | <2,000 | FAIL |
 
 Budgets are from PLAN.md section 8. Timing excludes HTTP and serialization.
