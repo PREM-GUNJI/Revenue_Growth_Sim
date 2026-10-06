@@ -1,16 +1,11 @@
-// Mirrors the engine's Scenario/Result shape from backend/engine (PLAN.md section 7, 14).
-// Real values arrive from POST /api/scenarios/evaluate once Phase 6-8 lands;
-// this shell renders against MOCK_SCENARIOS (see lib/mock-data.ts) until then.
-
+﻿// UI-facing comparison types; backend payload types are defined in lib/api.ts.
 export type ScenarioStatus = "SUPPORTED" | "EDGE" | "REFUSED"
-
 export interface ScenarioDelta {
   volumePct: number
   revenuePct: number
   marginPct: number
   marginPpt: number
 }
-
 export interface ScenarioResult {
   scenarioId: string
   name: string
@@ -24,7 +19,6 @@ export interface ScenarioResult {
   refusalReason?: string
   nearestSupportedId?: string
 }
-
 export interface Assumption {
   id: string
   label: string
