@@ -95,7 +95,7 @@ def retailer_risk(price_index: float) -> bool:
     return retailer_margin_pct < hurdle
 
 
-@dataclass
+@dataclass(frozen=True)
 class Bridge:
     """Six components that sum exactly (in cents) to the total GP change.
     Any float rounding residual is forced onto whichever component is

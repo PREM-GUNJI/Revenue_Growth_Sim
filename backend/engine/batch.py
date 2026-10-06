@@ -11,9 +11,10 @@ switching to litres, which PLAN.md's pre-implementation sketch assumed.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 
@@ -69,7 +70,7 @@ def _model_hash(draws: ParamDraws) -> str:
     return h.hexdigest()
 
 
-@dataclass
+@dataclass(frozen=True)
 class Band:
     value: float  # central draw
     p10: float
@@ -91,7 +92,7 @@ def _band_at(values: np.ndarray, quantiles: np.ndarray, si: int, ji: int) -> Ban
                 p50=float(quantiles[1, si, ji]), p90=float(quantiles[2, si, ji]))
 
 
-@dataclass
+@dataclass(frozen=True)
 class ScenarioResult:
     scenario_id: str
     status: str
@@ -269,10 +270,15 @@ def _evaluate_chunk(
 
             if decision.status == "EDGE":
                 # Explicitly widen all reported intervals on sparse support.
-                for band in (volume_bands[sku], gsv_bands[sku], nsv_bands[sku], gp_bands[sku]):
+                for bands in (volume_bands, gsv_bands, nsv_bands, gp_bands):
+                    band = bands[sku]
                     radius = max(abs(band.value - band.p10), abs(band.p90 - band.value))
-                    band.p10 = max(0.0, band.p10 - radius * 0.5)
-                    band.p90 += radius * 0.5
+                    bands[sku] = Band(
+                        value=band.value,
+                        p10=max(0.0, band.p10 - radius * 0.5),
+                        p50=band.p50,
+                        p90=band.p90 + radius * 0.5,
+                    )
 
             lv = e.levers[sku]
             bridge[sku] = Bridge(
@@ -336,6 +342,10 @@ def evaluate_batch(scenarios: list[Scenario], draws: ParamDraws) -> list[Scenari
         return []
     chunk_size = int(registry.get("A-024").value)
     expanded_by_request: dict[tuple, ExpandedScenario] = {}
+    unique_index_by_key: dict[tuple, int] = {}
+    unique_scenarios: list[Scenario] = []
+    unique_expanded: list[ExpandedScenario] = []
+    request_to_unique: list[int] = []
     expanded = []
     for scenario in scenarios:
         key = (
@@ -350,12 +360,35 @@ def evaluate_batch(scenarios: list[Scenario], draws: ParamDraws) -> list[Scenari
         if item is None:
             item = expand_scenario(scenario)
             expanded_by_request[key] = item
+            unique_index_by_key[key] = len(unique_scenarios)
+            unique_scenarios.append(scenario)
+            unique_expanded.append(item)
+        request_to_unique.append(unique_index_by_key[key])
         expanded.append(item)
-    results: list[ScenarioResult] = []
-    for start in range(0, len(scenarios), chunk_size):
+    unique_results: list[ScenarioResult] = []
+    for start in range(0, len(unique_scenarios), chunk_size):
         end = start + chunk_size
-        results.extend(_evaluate_chunk(scenarios[start:end], draws, expanded[start:end]))
-    return results
+        unique_results.extend(_evaluate_chunk(
+            unique_scenarios[start:end], draws, unique_expanded[start:end]
+        ))
+    output = []
+    for index, scenario in zip(request_to_unique, scenarios, strict=True):
+        item = unique_results[index]
+        if item.status == "REFUSED":
+            item = copy.deepcopy(item)
+            if item.nearest_supported_scenario is not None:
+                item.nearest_supported_scenario.name = (
+                    f"Nearest supported to {scenario.name}"[:80]
+                )
+        output.append(replace(
+            item,
+            volume=item.volume.copy(), gsv=item.gsv.copy(),
+            nsv=item.nsv.copy(), gp=item.gp.copy(), bridge=item.bridge.copy(),
+            retailer_risk_skus=item.retailer_risk_skus.copy(),
+            refusal_reasons=copy.deepcopy(item.refusal_reasons),
+            nearest_supported_scenario=copy.deepcopy(item.nearest_supported_scenario),
+        ))
+    return output
 
 
 def evaluate_one(scenario: Scenario, draws: ParamDraws) -> ScenarioResult:
