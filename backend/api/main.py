@@ -9,12 +9,16 @@ listing every id isn't a computation that should count toward coverage
 from __future__ import annotations
 
 from dataclasses import asdict
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
 from fastapi.encoders import jsonable_encoder
 
-from backend.api.schemas import AssumptionOut, EvaluateIn, ExportIn, ImportIn, ScenarioIn, SweepIn
+from backend.api.schemas import AgentRunIn, AssumptionOut, EvaluateIn, ExportIn, ImportIn, ScenarioIn, SweepIn
 from backend.assumptions.assumptions import ASSUMPTIONS, SKUS
+from backend.db import database_status, list_runs, save_run
+from backend.agent.openai_llm import OpenAILLM, OpenAILLMError
+from backend.agent.orchestrator import AgentOrchestrator
 from backend.engine.batch import ENGINE_VERSION, _data_hash, _support_envelope, evaluate_batch
 from backend.engine.ids import expand_scenario, scenario_id
 from backend.engine.scenario import Lever, Scenario
@@ -45,6 +49,72 @@ async def list_assumptions() -> list[AssumptionOut]:
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/database/health")
+async def database_health() -> dict[str, str]:
+    return {"status": database_status()}
+
+
+@app.post("/scenario-runs")
+async def create_scenario_run(request: ExportIn) -> dict:
+    result = asdict(
+        evaluate_batch([request.scenario], build_param_draws(k=request.k, seed=request.seed))[0]
+    )
+    record = {
+        "id": str(uuid4()),
+        "scenario_id": result["scenario_id"],
+        "status": result["status"],
+        "result_hash": result["result_hash"],
+        "k": request.k,
+        "seed": request.seed,
+        "scenario": request.scenario.model_dump(mode="json"),
+        "result": jsonable_encoder(result),
+    }
+    try:
+        save_run(record)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503, detail="PostgreSQL is unavailable or not configured"
+        ) from exc
+    return {**record, "created_at": None}
+
+
+@app.get("/scenario-runs")
+async def get_scenario_runs(limit: int = 100) -> list[dict]:
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=422, detail="limit must be between 1 and 500")
+    try:
+        rows = list_runs(limit)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503, detail="PostgreSQL is unavailable or not configured"
+        ) from exc
+    return [
+        {
+            "id": row.id, "scenario_id": row.scenario_id, "status": row.status,
+            "result_hash": row.result_hash, "k": row.k, "seed": row.seed,
+            "scenario": row.scenario, "result": row.result, "created_at": row.created_at,
+        }
+        for row in rows
+    ]
+
+
+@app.post("/agent/run")
+def run_agent(request: AgentRunIn) -> dict:
+    import os
+    from pathlib import Path
+    from uuid import uuid4
+
+    if os.getenv("LLM_PROVIDER", "openai").lower() != "openai":
+        raise HTTPException(status_code=503, detail="This build is configured for the OpenAI provider")
+    trace_id = uuid4().hex
+    trace_path = Path(os.getenv("AGENT_TRACE_DIR", "data/traces")) / (trace_id + ".jsonl")
+    try:
+        run = AgentOrchestrator().run(request.goal, OpenAILLM(), trace_path=trace_path)
+    except OpenAILLMError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"trace_id": trace_id, **run.model_dump(mode="json")}
 
 
 @app.get("/model/info")

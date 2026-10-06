@@ -46,3 +46,7 @@ class SweepIn(BaseModel):
     values: list[float] = Field(min_length=1, max_length=10_000)
     k: int = Field(default=200, ge=0, le=2_000)
     seed: int = Field(default=42, ge=0)
+
+
+class AgentRunIn(BaseModel):
+    goal: str = Field(min_length=1, max_length=4000)
