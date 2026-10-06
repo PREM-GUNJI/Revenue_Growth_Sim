@@ -11,9 +11,38 @@ from backend.engine.scenario import CostShock, Lever, Scenario
 ClaimLabel = Literal["Observed", "Modeled", "Assumed", "Recommended"]
 
 
+Methodology = Literal[
+    "Willingness to Pay", "Gabor-Granger", "Van Westendorp Price Sensitivity Meter",
+    "Conjoint simulation (supplied utilities)",
+]
+Pack = Literal["can_330ml", "pet_500ml", "bottle_1500ml", "multipack_6x330ml"]
+
+
+class ConjointAlt(BaseModel):
+    """A configuration to compare. Utilities are never supplied by the agent."""
+
+    brand: str
+    pack: Pack
+    price: float = Field(gt=0)
+    promotion: str = "None"
+
+
+class ResearchPlan(BaseModel):
+    """Which supporting evidence to gather. Produces candidates only; the engine computes outcomes."""
+
+    methodology: Methodology
+    pack: Pack = "pet_500ml"
+    brand: str = "Aurora"
+    promotion_depth_pct: float = Field(default=0.0, ge=0.0, le=100.0)
+    alternatives: list[ConjointAlt] = Field(default_factory=list, max_length=8)
+
+
 class AgentPlan(BaseModel):
-    scenarios: list[Scenario] = Field(min_length=4, max_length=6)
+    # PlannerPlan keeps the model to 4-6 scenarios; research candidates and the
+    # mandatory baseline/stress scenarios are added by the orchestrator.
+    scenarios: list[Scenario] = Field(min_length=4, max_length=16)
     objective: str = ""
+    research: ResearchPlan | None = None
 
 
 class SkuLever(BaseModel):
@@ -42,11 +71,13 @@ class PlannerScenario(BaseModel):
 class PlannerPlan(BaseModel):
     scenarios: list[PlannerScenario] = Field(min_length=4, max_length=6)
     objective: str = ""
+    research: ResearchPlan | None = None
 
     def to_agent_plan(self) -> AgentPlan:
         return AgentPlan(
             scenarios=[s.to_scenario() for s in self.scenarios],
             objective=self.objective,
+            research=self.research,
         )
 
 
@@ -57,6 +88,7 @@ class Claim(BaseModel):
     tool_call_id: str | None = None
     field_path: str | None = None
     references: list[str] = Field(default_factory=list)
+    research_id: str | None = None  # required for research-derived Modeled claims
 
 
 class AgentAnswer(BaseModel):

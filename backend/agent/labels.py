@@ -1,4 +1,4 @@
-﻿"""Validation rules for the four agent claim labels."""
+"""Validation rules for the four agent claim labels."""
 
 from __future__ import annotations
 
@@ -18,7 +18,11 @@ def validate_claim_labels(answer: AgentAnswer, events: list[ToolEvent]) -> list[
     by_id = {event.call_id: event for event in events}
     modeled_ids = {claim.claim_id for claim in answer.claims if claim.label == "Modeled"}
     issues = []
-    modeled_tools = {"evaluate_scenarios", "sweep", "explain_scenario", "calc"}
+    engine_tools = {"evaluate_scenarios", "sweep", "explain_scenario", "calc", "research_to_scenarios"}
+    research_tools = {"run_wtp", "run_gabor_granger", "run_van_westendorp", "run_conjoint_simulation"}
+    modeled_tools = engine_tools | research_tools
+    engine_modeled_ids = {c.claim_id for c in answer.claims if c.label == "Modeled"
+                          and (src := by_id.get(c.tool_call_id or "")) is not None and src.name in engine_tools}
 
     for claim in answer.claims:
         source = by_id.get(claim.tool_call_id or "")
@@ -34,7 +38,9 @@ def validate_claim_labels(answer: AgentAnswer, events: list[ToolEvent]) -> list[
                 if value is None or isinstance(value, (dict, list)):
                     issues.append(f"{claim.claim_id}: Modeled claim points to an empty or non-scalar result")
                 parts = claim.field_path.split(".")
-                if source.name in {"evaluate_scenarios", "sweep"}:
+                if source.name in research_tools and claim.research_id != source.result.get("research_id"):
+                    issues.append(f"{claim.claim_id}: research-derived Modeled claims must carry the research_id of their tool result")
+                if source.name in {"evaluate_scenarios", "sweep", "research_to_scenarios"}:
                     row = _field(source.result, parts[0])
                     if row.get("status") == "REFUSED":
                         issues.append(f"{claim.claim_id}: Modeled claims cannot cite a refused scenario")
@@ -48,4 +54,6 @@ def validate_claim_labels(answer: AgentAnswer, events: list[ToolEvent]) -> list[
             issues.append(f"{claim.claim_id}: Assumed claims must cite the assumptions registry")
         elif claim.label == "Recommended" and not (set(claim.references) & modeled_ids):
             issues.append(f"{claim.claim_id}: Recommended claims must reference a Modeled claim")
+        elif claim.label == "Recommended" and not (set(claim.references) & engine_modeled_ids):
+            issues.append(f"{claim.claim_id}: Recommended claims cannot rest on research evidence alone; reference a Modeled engine result")
     return sorted(set(issues))

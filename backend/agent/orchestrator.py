@@ -16,6 +16,29 @@ from backend.engine.scenario import CostShock, Scenario
 PROMPT_VERSION_HASH = hashlib.sha256(b"revenue-growth-agent-phase10-14-v2").hexdigest()
 
 
+def _research_claims(research: dict, ranking: list[dict], evaluation_call_id: str) -> list[Claim]:
+    """Research-derived claim (candidate price) + engine claim (its modeled outcome), both traceable."""
+    by_scenario = dict(zip(research["scenario_indices"], research["candidate_indices"], strict=True))
+    for row in ranking:  # best-first and already excludes refused scenarios
+        if row["index"] in by_scenario:
+            scenario_index, candidate_index = row["index"], by_scenario[row["index"]]
+            break
+    else:
+        return []
+    return [
+        Claim(claim_id="research-candidate-price",
+              text="The " + research["methodology"] + " study proposes a candidate price of "
+              + format(research["candidate_prices"][candidate_index], ".1f") + ".",
+              label="Modeled", tool_call_id=research["research_call_id"],
+              field_path=f"candidates.{candidate_index}.price", research_id=research["research_id"]),
+        Claim(claim_id="modeled-research-candidate-gp",
+              text="That research candidate has modeled portfolio gross profit "
+              + format(float(research["gp_by_scenario"][scenario_index]), ".1f") + ".",
+              label="Modeled", tool_call_id=evaluation_call_id,
+              field_path=f"{scenario_index}.portfolio_gp.value"),
+    ]
+
+
 class ScriptedLLM:
     """Offline fake model with an explicit plan and optional draft retry queue."""
 
@@ -33,6 +56,7 @@ class ScriptedLLM:
     def draft(
         self, goal: str, plan: AgentPlan, evaluated: list[dict],
         evaluation_call_id: str, ranking: list[dict], feedback: list[str] | None = None,
+        research: dict | None = None,
     ) -> AgentAnswer:
         del goal, feedback
         if self._drafts:
@@ -69,16 +93,55 @@ class ScriptedLLM:
             label="Recommended",
             references=[modeled.claim_id],
         )
+        claims = [modeled, recommended]
+        caveats = ["Modeled values depend on documented assumptions; sensitivity bands are not confidence intervals."]
+        if research:
+            claims += _research_claims(research, ranking, evaluation_call_id)
+            caveats.append("Consumer evidence is synthetic and illustrative. It proposed candidate prices only; "
+                           "every volume, revenue and margin figure comes from the deterministic engine.")
         return AgentAnswer(
             summary="The comparison uses deterministic engine results.",
             recommendations=[recommended.text],
             refusals=refused,
-            caveats=["Modeled values depend on documented assumptions; sensitivity bands are not confidence intervals."],
-            claims=[modeled, recommended],
+            caveats=caveats,
+            claims=claims,
         )
 
 
+_RESEARCH_TOOLS = {
+    "Willingness to Pay": "run_wtp",
+    "Gabor-Granger": "run_gabor_granger",
+    "Van Westendorp Price Sensitivity Meter": "run_van_westendorp",
+    "Conjoint simulation (supplied utilities)": "run_conjoint_simulation",
+}
+
+
 class AgentOrchestrator:
+    @staticmethod
+    def _gather_research(research, invoke, scenarios: list[Scenario]) -> dict:
+        """Evidence tools -> candidate scenarios. Research never produces commercial numbers."""
+        invoke("get_pricing_methodologies", {})
+        base_args: dict = {"pack": research.pack}
+        if research.methodology.startswith("Conjoint"):
+            base_args["brand"] = research.brand
+            if research.alternatives:
+                base_args["alternatives"] = [item.model_dump(mode="json") for item in research.alternatives]
+        research_call_id, result = invoke(_RESEARCH_TOOLS[research.methodology], base_args)
+        mapping_args = {"methodology": research.methodology, "brand": research.brand, "pack": research.pack,
+                        "promotion_depth_pct": research.promotion_depth_pct,
+                        **({"alternatives": base_args["alternatives"]} if "alternatives" in base_args else {})}
+        _mapping_id, rows = invoke("research_to_scenarios", mapping_args)
+        scenario_indices, candidate_indices = [], []
+        for row in rows:
+            scenario_indices.append(len(scenarios))
+            candidate_indices.append(row["provenance"]["candidate_index"])
+            scenarios.append(Scenario.model_validate(row["scenario"]))
+        return {"research_call_id": research_call_id, "research_id": result["research_id"],
+                "methodology": result["methodology"], "scenario_indices": scenario_indices,
+                "candidate_indices": candidate_indices,
+                "candidate_prices": [item["price"] for item in result["candidates"]],
+                "provenance": [row["provenance"] for row in rows]}
+
     def __init__(self, max_audit_retries: int = 2):
         if max_audit_retries < 0:
             raise ValueError("max_audit_retries must be non-negative")
@@ -110,6 +173,9 @@ class AgentOrchestrator:
         if not isinstance(plan, AgentPlan):
             plan = AgentPlan.model_validate(plan)
         scenarios = list(plan.scenarios)
+        research_context = None
+        if plan.research is not None:
+            research_context = self._gather_research(plan.research, invoke, scenarios)
         has_baseline = any(
             not item.levers and not any(item.cost_shock.model_dump().values())
             for item in scenarios
@@ -143,13 +209,24 @@ class AgentOrchestrator:
                     "scenario": scenario.model_dump(mode="json"), "k": 0, "seed": 42,
                 })
 
+        if research_context is not None:
+            gp = {i: evaluated[i]["portfolio_gp"]["value"] for i in research_context["scenario_indices"]
+                  if evaluated[i].get("portfolio_gp") is not None}
+            research_context["gp_by_scenario"] = gp
+            # Refused candidates have no modeled numbers and can never be cited.
+            keep = [(s_i, c_i) for s_i, c_i in zip(research_context["scenario_indices"],
+                                                   research_context["candidate_indices"], strict=True) if s_i in gp]
+            research_context["scenario_indices"] = [item[0] for item in keep]
+            research_context["candidate_indices"] = [item[1] for item in keep]
+
         events = [ToolEvent.model_validate(item) for item in tools.events]
         answer = AgentAnswer(summary="Auditor did not produce a draft.")
         verdict = audit_answer(answer, events)
         feedback: list[str] = []
         for _ in range(self.max_audit_retries + 1):
             model_started = time.perf_counter()
-            answer = llm.draft(goal, plan, evaluated, eval_id, ranking, feedback)
+            extra = {"research": research_context} if research_context is not None else {}
+            answer = llm.draft(goal, plan, evaluated, eval_id, ranking, feedback, **extra)
             model_time_ms += (time.perf_counter() - model_started) * 1000
             if not isinstance(answer, AgentAnswer):
                 answer = AgentAnswer.model_validate(answer)
@@ -186,3 +263,20 @@ def demo_plan() -> AgentPlan:
         sku: {"price_index": 1.5, "promo_depth_pct": 0, "mechanic": "none", "promo_weeks_per_month": 0},
     })
     return AgentPlan(scenarios=[baseline, price, promotion, refused], objective="compare modeled margin outcomes")
+
+
+def select_research(goal: str, pack: str = "pet_500ml"):
+    """Deterministic evidence-method choice for the offline planner; None means no research is needed."""
+    from backend.agent.schemas import ResearchPlan
+
+    text = goal.lower()
+    rules = (
+        ("Conjoint simulation (supplied utilities)", ("conjoint", "trade-off", "tradeoff", "brand", "preference", "choice")),
+        ("Van Westendorp Price Sensitivity Meter", ("van westendorp", "too expensive", "too cheap", "acceptable range", "price range")),
+        ("Gabor-Granger", ("gabor", "acceptance", "demand curve", "price points")),
+        ("Willingness to Pay", ("willingness to pay", "wtp", "price ceiling", "how much would")),
+    )
+    for methodology, words in rules:
+        if any(word in text for word in words):
+            return ResearchPlan(methodology=methodology, pack=pack)
+    return None

@@ -68,6 +68,19 @@ def test_drawable_and_cost_assumptions_reach_100_percent_coverage_via_full_pipel
     evaluate_one(
         Scenario(cost_shock=CostShock(aluminium_pct=5, pet_resin_pct=5, sugar_pct=5)), draws
     )
+    # The supporting research layer reads its own registry ids (A-026..A-037); exercising every
+    # method keeps "100% coverage" honest instead of widening the exemption set.
+    from backend.research.evidence import (
+        METHODOLOGIES, conjoint_simulation, default_conjoint_alternatives, generate_consumers,
+        research_to_scenarios, run_research,
+    )
+
+    consumers = generate_consumers(42)
+    for method in METHODOLOGIES:
+        research_to_scenarios(run_research(method, consumers), k=0)
+    for pack in ("can_330ml", "bottle_1500ml", "multipack_6x330ml"):
+        run_research("Willingness to Pay", consumers, pack=pack)
+    conjoint_simulation(consumers, default_conjoint_alternatives())
 
     assert set(DRAWABLE_ASSUMPTION_IDS) <= registry.reads()
     unread = registry.unread_ids()

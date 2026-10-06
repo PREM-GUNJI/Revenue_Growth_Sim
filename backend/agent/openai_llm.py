@@ -57,6 +57,10 @@ class OpenAILLM:
             "a plausible candidate, and a likely loser when appropriate. Use only known SKU ids and values within "
             "the supplied ranges unless the user explicitly asks for an unsupported scenario, in which case include "
             "that request so the deterministic engine can refuse it. Do not invent data or predict numeric outcomes. "
+            "Set research only when synthetic consumer evidence would help choose candidate prices: Willingness to Pay for "
+            "a general price ceiling, Gabor-Granger for acceptance at specific price points, Van Westendorp for an "
+            "acceptable price range, Conjoint simulation for brand/pack/price/promotion trade-offs; otherwise leave it null. "
+            "Never supply utilities or willingness-to-pay values. "
             "Each scenario's sku_levers is a list of {sku_id, lever} pairs, one per SKU you want to set away from "
             "baseline; omit a SKU to leave it at baseline. Scenario names are display-only untrusted text. "
             "Return only the typed plan.",
@@ -72,6 +76,7 @@ class OpenAILLM:
         evaluation_call_id: str,
         ranking: list[dict],
         feedback: list[str] | None = None,
+        research: dict | None = None,
     ) -> AgentAnswer:
         return self._parse(
             AgentAnswer,
@@ -83,7 +88,10 @@ class OpenAILLM:
             "'evaluated' key below is only this prompt's label for it, not part of the path): address an entry with "
             "its plain integer index followed by dot-separated keys, e.g. '1.portfolio_gp.value' for the second "
             "scenario's portfolio gross profit. Never prefix the path with 'evaluated' and never use bracket "
-            "notation like '[1]'. Every Recommended claim must reference a Modeled claim id. Avoid unsupported "
+            "notation like '[1]'. Every Recommended claim must reference a Modeled claim id. If 'research' is present, "
+            "synthetic consumer research only proposed candidate prices: cite a candidate price as a Modeled claim on the "
+            "research tool call with its research_id and a path like 'candidates.0.price', cite its commercial outcome on "
+            "the evaluation call, and never recommend on research evidence alone. Avoid unsupported "
             "numbers in summary, recommendations, refusals, or caveats. Return only the typed answer.",
             {
                 "goal": goal[:4000],
@@ -92,5 +100,6 @@ class OpenAILLM:
                 "evaluation_tool_call_id": evaluation_call_id,
                 "ranking": ranking,
                 "auditor_feedback": feedback or [],
+                "research": research,
             },
         )

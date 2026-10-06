@@ -354,6 +354,67 @@ CONJOINT_UTILITY_SCALE = Assumption(
     valid_range=(0.01, 10.0),
 )
 
+# --- Synthetic consumer evidence + pricing research (supporting layer) --
+# Consumer research only proposes candidate prices/configurations; every
+# commercial number still comes from the deterministic engine.
+REFERENCE_PRICE_BY_FORMAT: dict[str, Assumption] = {
+    fmt: Assumption(
+        id=aid, label=f"Reference shelf price, {label} (INR)", value=price, unit="INR",
+        source="business-input",
+        rationale="Current synthetic shelf price used to turn a researched price into the engine's price_index (candidate / reference).",
+        valid_range=(rng_lo, rng_hi),
+    )
+    for fmt, aid, label, price, rng_lo, rng_hi in (
+        ("can_330ml", "A-028", "330ml can", 40.0, 20.0, 80.0),
+        ("pet_500ml", "A-029", "500ml PET", 45.0, 25.0, 90.0),
+        ("bottle_1500ml", "A-030", "1.5L bottle", 75.0, 40.0, 150.0),
+        ("multipack_6x330ml", "A-031", "6x330ml multipack", 120.0, 60.0, 240.0),
+    )
+}
+WTP_CANDIDATE_QUANTILES = Assumption(
+    id="A-032", label="Willingness-to-pay candidate percentiles", value=[0.25, 0.5, 0.75],
+    unit="fraction", source="modelling-choice",
+    rationale="Descriptive percentiles of synthetic respondent WTP offered as candidate prices; they are candidates, not forecasts.",
+    valid_range=(0.0, 1.0),
+)
+GABOR_GRANGER_ACCEPTANCE_THRESHOLD = Assumption(
+    id="A-033", label="Gabor-Granger acceptance threshold", value=0.5, unit="fraction",
+    source="modelling-choice",
+    rationale="Highest tested price still accepted by at least this share of respondents is offered as a candidate.",
+    valid_range=(0.05, 0.95),
+)
+GABOR_GRANGER_PRICE_GRID = Assumption(
+    id="A-034", label="Gabor-Granger default price grid (x reference price)",
+    value=[0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2], unit="price index", source="modelling-choice",
+    rationale="Default tested prices as multiples of the pack's reference price, spanning the engine's observed price range and a little beyond so edge refusals stay visible.",
+    valid_range=(0.5, 2.0),
+)
+RESEARCH_PRICE_GRID_STEP = Assumption(
+    id="A-035", label="Van Westendorp price grid step (INR)", value=0.5, unit="INR",
+    source="modelling-choice",
+    rationale="Resolution of the price grid on which cumulative curves are intersected; coarser grids move intersections by at most one step.",
+    valid_range=(0.1, 5.0),
+)
+CONJOINT_HETEROGENEITY_WEIGHT = Assumption(
+    id="A-036", label="Conjoint respondent heterogeneity weight", value=1.0, unit="weight",
+    source="modelling-choice",
+    rationale="Scales a respondent's price and promotion part-worths by 1 + weight x (sensitivity - 0.5), where 0.5 is the midpoint of the 0-1 sensitivity scale. Deterministic; nothing is fitted.",
+    valid_range=(0.0, 2.0),
+)
+CONJOINT_SUPPLIED_PART_WORTHS = Assumption(
+    id="A-037", label="Supplied synthetic conjoint part-worths",
+    value={
+        "brand": {"Aurora": 0.35, "Boreal": 0.0, "Comet": -0.25},
+        "pack": {"can_330ml": 0.0, "pet_500ml": 0.2, "bottle_1500ml": 0.1, "multipack_6x330ml": 0.15},
+        "pack_match_bonus": 0.5,
+        "price_slope": -6.0,
+        "promotion": {"None": 0.0, "10% off": 0.35, "20% off": 0.6},
+    },
+    unit="utility units", source="modelling-choice",
+    rationale="Illustrative part-worths supplied by the analyst. They are inputs to a deterministic multinomial-logit simulation and are never estimated or fitted from data. price_slope is utility per +100% price versus the pack's reference price.",
+    valid_range=(-10.0, 10.0),
+)
+
 ASSUMPTIONS: dict[str, Assumption] = {
     **{a.id: a for a in OWN_ELASTICITY_BY_FORMAT.values()},
     CROSS_ELASTICITY_WITHIN_BRAND.id: CROSS_ELASTICITY_WITHIN_BRAND,
@@ -378,7 +439,20 @@ ASSUMPTIONS: dict[str, Assumption] = {
     SUPPORT_DECISION_CACHE_SIZE.id: SUPPORT_DECISION_CACHE_SIZE,
     SYNTHETIC_CONSUMER_SAMPLE.id: SYNTHETIC_CONSUMER_SAMPLE,
     CONJOINT_UTILITY_SCALE.id: CONJOINT_UTILITY_SCALE,
+    **{a.id: a for a in REFERENCE_PRICE_BY_FORMAT.values()},
+    WTP_CANDIDATE_QUANTILES.id: WTP_CANDIDATE_QUANTILES,
+    GABOR_GRANGER_ACCEPTANCE_THRESHOLD.id: GABOR_GRANGER_ACCEPTANCE_THRESHOLD,
+    GABOR_GRANGER_PRICE_GRID.id: GABOR_GRANGER_PRICE_GRID,
+    RESEARCH_PRICE_GRID_STEP.id: RESEARCH_PRICE_GRID_STEP,
+    CONJOINT_HETEROGENEITY_WEIGHT.id: CONJOINT_HETEROGENEITY_WEIGHT,
+    CONJOINT_SUPPLIED_PART_WORTHS.id: CONJOINT_SUPPLIED_PART_WORTHS,
 }
+
+# Research-layer ids, so provenance can separate them from engine assumptions.
+RESEARCH_ASSUMPTION_IDS = sorted(
+    ["A-026", "A-027", "A-032", "A-033", "A-034", "A-035", "A-036", "A-037"]
+    + [a.id for a in REFERENCE_PRICE_BY_FORMAT.values()]
+)
 
 
 def build_elasticity_matrix() -> np.ndarray:
@@ -444,4 +518,28 @@ GENERATOR_SEED = {
     "store_noise_sigma": 0.08,  # idiosyncratic per (sku, region, store, week)
     "price_index_walk_sigma": 0.01,  # weekly drift step for price_index
     "price_index_bounds": (0.88, 1.12),
+}
+
+
+# --- Synthetic consumer generator-only inputs (no Assumption id) ---------
+# Same status as GENERATOR_SEED: they shape the *synthetic* respondents and
+# are never read by the engine. Research methods read the registry above.
+CONSUMER_GENERATOR_SEED = {
+    "segments": ("value_seeker", "family_planner", "brand_loyal", "deal_responsive"),
+    "price_sensitivity_mean": {"value_seeker": 0.82, "family_planner": 0.45, "brand_loyal": 0.24, "deal_responsive": 0.68},
+    "promotion_sensitivity_mean": {"value_seeker": 0.45, "family_planner": 0.30, "brand_loyal": 0.20, "deal_responsive": 0.85},
+    "sensitivity_sigma": {"price": 0.08, "promotion": 0.07},
+    "pack_mix": [0.32, 0.30, 0.22, 0.16],  # follows FORMATS order
+    "age_bands": ["18-24", "25-34", "35-44", "45-54", "55+"],
+    "age_mix": [0.15, 0.28, 0.25, 0.18, 0.14],
+    "purchase_frequency": ["weekly", "2-3x_month", "monthly"],
+    "purchase_frequency_mix": [0.45, 0.40, 0.15],
+    "wtp_premium_at_zero_sensitivity": 0.12,
+    "wtp_sensitivity_slope": 0.16,
+    "wtp_noise_sigma": 0.035,
+    # Van Westendorp answers as multiples of a respondent's WTP, sorted per respondent.
+    "vw_factors": {"too_cheap": 0.70, "cheap": 0.85, "expensive": 1.12, "too_expensive": 1.30},
+    "vw_noise_sigma": 0.04,
+    "promo_comment_threshold": 0.72,
+    "low_price_sensitivity_comment_threshold": 0.35,
 }

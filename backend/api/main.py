@@ -20,6 +20,7 @@ from backend.api.schemas import (
     AgentRunIn,
     AssumptionOut,
     ConjointIn,
+    ConjointToScenariosIn,
     ConsumerEvidenceIn,
     EvaluateIn,
     ExportIn,
@@ -37,8 +38,9 @@ from backend.engine.scenario import Lever, Scenario
 from backend.engine.support import nearest_supported
 from backend.model.backtest import spec_hash
 from backend.model.spec import build_param_draws
-from backend.research.evidence import (conjoint_simulation, generate_consumers,
-                                      research_to_scenarios, run_research)
+from backend.research.evidence import (CONJOINT_STATEMENT, LABEL, conjoint_defaults, conjoint_simulation,
+                                      generate_consumers, research_to_scenarios, run_research,
+                                      summarize_consumers)
 
 app = FastAPI(title="Revenue Growth Scenario Simulator")
 API_EXPORT_VERSION = 1
@@ -56,25 +58,50 @@ async def consumer_evidence(request: ConsumerEvidenceIn) -> dict:
     return generate_consumers(request.seed, request.sample_size)
 
 
+@app.post("/pricing/consumer-summary")
+async def consumer_summary(request: ConsumerEvidenceIn) -> dict:
+    return summarize_consumers(generate_consumers(request.seed, request.sample_size))
+
+
 @app.post("/pricing/research")
 async def pricing_research(request: ResearchIn) -> dict:
     evidence = generate_consumers(request.seed, request.sample_size)
-    result = run_research(request.methodology, evidence, request.prices or None)
-    return {**asdict(result), "label": "SYNTHETIC CONSUMER EVIDENCE"}
+    result = run_research(request.methodology, evidence, request.prices or None, request.pack)
+    return {**asdict(result), "label": LABEL}
+
+
+@app.get("/pricing/conjoint/defaults")
+async def pricing_conjoint_defaults() -> dict:
+    return conjoint_defaults()
 
 
 @app.post("/pricing/conjoint")
 async def pricing_conjoint(request: ConjointIn) -> dict:
-    evidence = generate_consumers(request.seed, request.sample_size)
-    return conjoint_simulation(evidence, request.alternatives, request.utilities)
+    try:
+        result = conjoint_simulation(generate_consumers(request.seed, request.sample_size),
+                                     request.alternatives, request.utilities, request.focus_brand)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {**asdict(result), "label": LABEL, "statement": CONJOINT_STATEMENT}
 
 
 @app.post("/pricing/research-to-scenarios")
 async def research_candidates(request: ResearchToScenariosIn) -> dict:
     evidence = generate_consumers(request.seed, request.sample_size)
-    result = run_research(request.methodology, evidence, request.prices or None)
-    return {"research": asdict(result), "scenarios": research_to_scenarios(
+    result = run_research(request.methodology, evidence, request.prices or None, request.pack)
+    return {"research": asdict(result), "label": LABEL, "scenarios": research_to_scenarios(
         result, request.brand, request.promotion_depth_pct)}
+
+
+@app.post("/pricing/conjoint-to-scenarios")
+async def conjoint_candidates(request: ConjointToScenariosIn) -> dict:
+    try:
+        result = conjoint_simulation(generate_consumers(request.seed, request.sample_size),
+                                     request.alternatives, request.utilities, request.focus_brand)
+        scenarios = research_to_scenarios(result, request.focus_brand)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"research": {**asdict(result), "statement": CONJOINT_STATEMENT}, "label": LABEL, "scenarios": scenarios}
 
 
 @app.get("/assumptions", response_model=list[AssumptionOut])

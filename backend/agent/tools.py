@@ -20,8 +20,9 @@ from backend.engine.scenario import Lever, Scenario
 from backend.engine.support import nearest_supported
 from backend.model.backtest import spec_hash
 from backend.model.spec import ParamDraws, build_param_draws
-from backend.research.evidence import (conjoint_simulation, generate_consumers,
-                                      research_to_scenarios, run_research)
+from backend.research.evidence import (CONJOINT_METHOD, LABEL, conjoint_simulation,
+                                      default_conjoint_alternatives, generate_consumers,
+                                      research_to_scenarios, run_research, summarize_consumers)
 
 
 class ToolError(ValueError):
@@ -103,32 +104,42 @@ class AgentTools:
     def _tool_get_pricing_methodologies(self) -> dict:
         return {"priority_1": ["Willingness to Pay", "Gabor-Granger",
                                "Van Westendorp Price Sensitivity Meter"],
-                "priority_2": ["Conjoint simulation"]}
+                "priority_2": ["Conjoint simulation (supplied utilities)"],
+                "role": "Research proposes candidate prices only; the engine computes volume, revenue and margin.",
+                "label": LABEL}
 
-    def _tool_get_consumer_evidence(self, seed: int = 42, sample_size: int = 250) -> dict:
-        return generate_consumers(seed, sample_size)
+    def _tool_get_consumer_evidence(self, seed: int = 42, sample_size: int | None = None) -> dict:
+        return summarize_consumers(generate_consumers(seed, sample_size))
 
-    def _tool_run_wtp(self, seed: int = 42, sample_size: int = 250) -> dict:
-        return asdict(run_research("Willingness to Pay", generate_consumers(seed, sample_size)))
+    def _tool_run_wtp(self, seed: int = 42, sample_size: int | None = None, pack: str = "pet_500ml") -> dict:
+        return asdict(run_research("Willingness to Pay", generate_consumers(seed, sample_size), None, pack))
 
-    def _tool_run_gabor_granger(self, prices: list[float], seed: int = 42,
-                                sample_size: int = 250) -> dict:
-        return asdict(run_research("Gabor-Granger", generate_consumers(seed, sample_size), prices))
+    def _tool_run_gabor_granger(self, prices: list[float] | None = None, seed: int = 42,
+                                sample_size: int | None = None, pack: str = "pet_500ml") -> dict:
+        return asdict(run_research("Gabor-Granger", generate_consumers(seed, sample_size), prices, pack))
 
-    def _tool_run_van_westendorp(self, seed: int = 42, sample_size: int = 250) -> dict:
+    def _tool_run_van_westendorp(self, seed: int = 42, sample_size: int | None = None,
+                                 pack: str = "pet_500ml") -> dict:
         return asdict(run_research("Van Westendorp Price Sensitivity Meter",
-                                   generate_consumers(seed, sample_size)))
+                                   generate_consumers(seed, sample_size), None, pack))
 
-    def _tool_run_conjoint_simulation(self, alternatives: list[dict], utilities: dict[str, float],
-                                      seed: int = 42, sample_size: int = 250) -> dict:
-        return conjoint_simulation(generate_consumers(seed, sample_size), alternatives, utilities)
+    def _tool_run_conjoint_simulation(self, alternatives: list[dict] | None = None, brand: str = "Aurora",
+                                      pack: str = "pet_500ml", seed: int = 42,
+                                      sample_size: int | None = None) -> dict:
+        # No utilities argument: the agent cannot invent part-worths; the registry supplies them.
+        alternatives = alternatives or default_conjoint_alternatives(brand, pack)
+        return asdict(conjoint_simulation(generate_consumers(seed, sample_size), alternatives, None, brand))
 
-    def _tool_research_to_scenarios(self, methodology: str = "Willingness to Pay",
-                                    seed: int = 42, sample_size: int = 250,
-                                    prices: list[float] | None = None, brand: str = "Aurora",
-                                    promotion_depth_pct: float = 0) -> list[dict]:
+    def _tool_research_to_scenarios(self, methodology: str = "Willingness to Pay", seed: int = 42,
+                                    sample_size: int | None = None, prices: list[float] | None = None,
+                                    brand: str = "Aurora", pack: str = "pet_500ml",
+                                    promotion_depth_pct: float = 0,
+                                    alternatives: list[dict] | None = None) -> list[dict]:
         evidence = generate_consumers(seed, sample_size)
-        research = run_research(methodology, evidence, prices)
+        if methodology == CONJOINT_METHOD:
+            research = conjoint_simulation(evidence, alternatives or default_conjoint_alternatives(brand, pack), None, brand)
+        else:
+            research = run_research(methodology, evidence, prices, pack)
         return research_to_scenarios(research, brand, promotion_depth_pct)
 
     def _tool_get_envelope(self) -> dict:
