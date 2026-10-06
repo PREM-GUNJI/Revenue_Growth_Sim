@@ -1,3 +1,5 @@
+import { AuthError, UNAUTHORIZED_EVENT } from "@/lib/auth"
+
 export interface ApiAssumption {
   id: string
   label: string
@@ -94,13 +96,32 @@ export interface EnvelopeInfo {
   own_elasticity_assumption_by_format: Record<string, string>
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/** An API failure that keeps its HTTP status, so callers can react to e.g. 404 or 409. */
+export class ApiError extends Error {
+  readonly status: number
+  readonly detail: string
+  constructor(status: number, detail: string, message: string) { super(message); this.name = "ApiError"; this.status = status; this.detail = detail }
+}
+function detailOf(text: string): string {
+  try {
+    const parsed = JSON.parse(text) as { detail?: unknown }
+    return typeof parsed.detail === "string" ? parsed.detail : text
+  } catch {
+    return text
+  }
+}
+
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch("/api" + path, {
     ...init, headers: { "Content-Type": "application/json", ...init?.headers },
   })
+  if (response.status === 401) {
+    window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
+    throw new AuthError()
+  }
   if (!response.ok) {
     const detail = await response.text()
-    throw new Error("API " + response.status + ": " + (detail || response.statusText))
+    throw new ApiError(response.status, detailOf(detail) || response.statusText, "API " + response.status + ": " + (detail || response.statusText))
   }
   return response.json() as Promise<T>
 }
@@ -153,7 +174,7 @@ export interface AgentApiRun {
   audit: { passed: boolean; issues: string[]; numbers_checked: number }
   tool_events: AgentToolEvent[]
 }
-export function runAgent(goal: string) { return post<AgentApiRun>("/agent/run", { goal }) }
+export function runAgent(goal: string, workspaceId?: string) { return post<AgentApiRun>("/agent/run", { goal, workspace_id: workspaceId ?? null }) }
 
 // Supporting synthetic consumer evidence. Research proposes candidates; the engine decides outcomes.
 export function getEvidenceDefaults() { return request<EvidenceDefaults>("/pricing/conjoint/defaults") }

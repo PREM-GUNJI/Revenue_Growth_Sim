@@ -7,7 +7,12 @@ from collections.abc import Callable
 from sqlalchemy import Column, DateTime, MetaData, String, Table, func, select
 from sqlalchemy.engine import Connection, Engine
 
-from backend.migrations import v001_initial_scenario_runs
+from backend.migrations import (
+    v001_initial_scenario_runs,
+    v002_users,
+    v003_workspaces,
+    v004_ai_usage_cached_tokens,
+)
 
 Migration = tuple[str, Callable[[Connection], None]]
 metadata = MetaData()
@@ -19,6 +24,9 @@ migration_table = Table(
 )
 MIGRATIONS: tuple[Migration, ...] = (
     ("001_initial_scenario_runs", v001_initial_scenario_runs.upgrade),
+    ("002_users", v002_users.upgrade),
+    ("003_workspaces", v003_workspaces.upgrade),
+    ("004_ai_usage_cached_tokens", v004_ai_usage_cached_tokens.upgrade),
 )
 
 

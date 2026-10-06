@@ -50,6 +50,7 @@ class SweepIn(BaseModel):
 
 class AgentRunIn(BaseModel):
     goal: str = Field(min_length=1, max_length=4000)
+    workspace_id: str | None = Field(default=None, max_length=64)
 
 
 class ConsumerEvidenceIn(BaseModel):

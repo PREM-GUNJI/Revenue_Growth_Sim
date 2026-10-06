@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.encoders import jsonable_encoder
 
 from backend.agent.openai_llm import OpenAILLM, OpenAILLMError
@@ -31,18 +31,35 @@ from backend.api.schemas import (
     SweepIn,
 )
 from backend.assumptions.assumptions import ASSUMPTIONS, OWN_ELASTICITY_BY_FORMAT, SKUS
+from backend.audit import record_agent_usage
+from backend.audit import router as audit_router
+from backend.auth import CurrentUser, require_user
+from backend.auth import router as auth_router
 from backend.db import database_status, list_runs, save_run
 from backend.engine.batch import ENGINE_VERSION, _data_hash, _support_envelope, evaluate_batch
 from backend.engine.ids import expand_scenario, scenario_id
 from backend.engine.scenario import Lever, Scenario
 from backend.engine.support import nearest_supported
+from backend.hub import router as hub_router
 from backend.model.backtest import spec_hash
 from backend.model.spec import build_param_draws
-from backend.research.evidence import (CONJOINT_STATEMENT, LABEL, conjoint_defaults, conjoint_simulation,
-                                      generate_consumers, research_to_scenarios, run_research,
-                                      summarize_consumers)
+from backend.research.evidence import (
+    CONJOINT_STATEMENT,
+    LABEL,
+    conjoint_defaults,
+    conjoint_simulation,
+    generate_consumers,
+    research_to_scenarios,
+    run_research,
+    summarize_consumers,
+)
+from backend.workspaces import router as workspaces_router
 
-app = FastAPI(title="Revenue Growth Scenario Simulator")
+app = FastAPI(title="Revenue Growth Scenario Simulator", dependencies=[Depends(require_user)])
+app.include_router(auth_router)
+app.include_router(workspaces_router)
+app.include_router(hub_router)
+app.include_router(audit_router)
 API_EXPORT_VERSION = 1
 
 
@@ -186,7 +203,7 @@ async def get_scenario_runs(limit: int = 100) -> list[dict]:
 
 
 @app.post("/agent/run")
-def run_agent(request: AgentRunIn) -> dict:
+def run_agent(request: AgentRunIn, user: CurrentUser) -> dict:
     import os
     from pathlib import Path
     from uuid import uuid4
@@ -195,10 +212,19 @@ def run_agent(request: AgentRunIn) -> dict:
         raise HTTPException(status_code=503, detail="This build is configured for the OpenAI provider")
     trace_id = uuid4().hex
     trace_path = Path(os.getenv("AGENT_TRACE_DIR", "data/traces")) / (trace_id + ".jsonl")
+    llm = None
     try:
-        run = AgentOrchestrator().run(request.goal, OpenAILLM(), trace_path=trace_path)
+        llm = OpenAILLM()  # a missing key or model is a configuration error: report it as 503, not a crash
+        run = AgentOrchestrator().run(request.goal, llm, trace_path=trace_path)
     except OpenAILLMError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        # The model's plan was well-formed but asked a tool for something that does not exist.
+        raise HTTPException(status_code=502, detail="The assistant proposed something the engine cannot run: " + str(exc)[:200]) from exc
+    finally:
+        # Tokens are spent even when a later call fails, so the usage row is written either way.
+        if llm is not None:
+            record_agent_usage(user.email, request.workspace_id, trace_id, llm, request.goal)
     return {"trace_id": trace_id, **run.model_dump(mode="json")}
 
 

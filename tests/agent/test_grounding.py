@@ -38,3 +38,25 @@ def test_ac018_refusal_text_with_ballpark_number_is_not_grounded():
     )
     issues, _ = check_numeric_grounding(answer, [tool])
     assert any("40%" in issue for issue in issues)
+
+
+
+def test_pack_names_are_labels_not_numbers_to_ground():
+    """Regression: "500ml PET" made the auditor report 'Ungrounded number in answer: 500'."""
+    tool = event([{"status": "SUPPORTED", "portfolio_gp": {"value": 1250.04}}])
+    for text in ("Adopt the price for Aurora 500ml PET.", "The 500 ml pack holds up.", "Modeled GP is 1,250.0 on the 330ml can.",
+                 "The 1.5 L bottle and the 1.5L bottle.", "Try the 6 x 330ml multipack and the 6x330 ml multipack.",
+                 "A 1500ml bottle."):
+        assert check_numeric_grounding(AgentAnswer(summary=text), [tool])[0] == [], text
+
+
+def test_pack_label_exemption_does_not_excuse_other_numbers():
+    tool = event([{"status": "SUPPORTED", "portfolio_gp": {"value": 1250.04}}])
+    cases = {
+        "Adopt 500ml PET with GP of 500.": "500",       # a bare 500 elsewhere in the sentence is still a claim
+        "A 700ml pack would sell well.": "700",         # sizes the registry does not define are not exempt
+        "Volume rises 12.5% for the 500ml PET.": "12.5%",
+        "Profit is 330 on the 330ml can.": "330",
+    }
+    for text, flagged in cases.items():
+        assert check_numeric_grounding(AgentAnswer(summary=text), [tool])[0] == [f"Ungrounded number in answer: {flagged}"], text

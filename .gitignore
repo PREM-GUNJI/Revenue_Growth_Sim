@@ -18,3 +18,6 @@ node_modules/
 # committed as evidence; the binary artifacts are reproduced by `make generate`.
 data/*.parquet
 data/draws.npz
+
+# Local dev session-signing key (generated on first run)
+.auth_dev_secret

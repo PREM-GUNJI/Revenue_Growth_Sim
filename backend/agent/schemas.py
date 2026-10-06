@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from backend.assumptions.assumptions import BRANDS, PROMO_MECHANICS, SKU_IDS
 from backend.engine.scenario import CostShock, Lever, Scenario
 
 ClaimLabel = Literal["Observed", "Modeled", "Assumed", "Recommended"]
@@ -16,12 +17,15 @@ Methodology = Literal[
     "Conjoint simulation (supplied utilities)",
 ]
 Pack = Literal["can_330ml", "pet_500ml", "bottle_1500ml", "multipack_6x330ml"]
+# Brands come from the registry list; free text here let the model invent one ("ALL_500ml") that no SKU has.
+Brand = Literal[tuple(BRANDS)]  # type: ignore[valid-type]
+SkuId = Literal[tuple(SKU_IDS)]  # type: ignore[valid-type]
 
 
 class ConjointAlt(BaseModel):
     """A configuration to compare. Utilities are never supplied by the agent."""
 
-    brand: str
+    brand: Brand  # type: ignore[valid-type]
     pack: Pack
     price: float = Field(gt=0)
     promotion: str = "None"
@@ -32,7 +36,7 @@ class ResearchPlan(BaseModel):
 
     methodology: Methodology
     pack: Pack = "pet_500ml"
-    brand: str = "Aurora"
+    brand: Brand = "Aurora"  # type: ignore[valid-type]
     promotion_depth_pct: float = Field(default=0.0, ge=0.0, le=100.0)
     alternatives: list[ConjointAlt] = Field(default_factory=list, max_length=8)
 
@@ -45,14 +49,25 @@ class AgentPlan(BaseModel):
     research: ResearchPlan | None = None
 
 
+# The planner's structured-output schema must list the allowed mechanics, otherwise the model writes
+# free text such as "temporary_price_reduction". The values come from the registry list, not a copy.
+Mechanic = Literal[tuple(PROMO_MECHANICS)]  # type: ignore[valid-type]
+
+
+class PlannerLever(Lever):
+    """The engine Lever, with `mechanic` restricted to the registry's promo mechanics for the model's schema."""
+
+    mechanic: Mechanic = "none"  # type: ignore[assignment,valid-type]
+
+
 class SkuLever(BaseModel):
     """One (sku_id, lever) pair. OpenAI structured outputs reject Scenario.levers'
     dict[str, Lever] shape (arbitrary-keyed objects aren't representable in strict
     JSON schema), so the planner emits a list of pairs instead and we assemble the
     dict ourselves before constructing the real engine Scenario."""
 
-    sku_id: str
-    lever: Lever
+    sku_id: SkuId  # type: ignore[valid-type]
+    lever: PlannerLever
 
 
 class PlannerScenario(BaseModel):
@@ -63,7 +78,7 @@ class PlannerScenario(BaseModel):
     def to_scenario(self) -> Scenario:
         return Scenario(
             name=self.name,
-            levers={pair.sku_id: pair.lever for pair in self.sku_levers},
+            levers={pair.sku_id: Lever(**pair.lever.model_dump()) for pair in self.sku_levers},
             cost_shock=self.cost_shock,
         )
 

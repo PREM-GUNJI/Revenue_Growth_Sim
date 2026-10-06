@@ -41,6 +41,21 @@ The backend supports assumptions and envelope inspection, scenario evaluation an
 
 Deployment (containerisation, rollback) is scheduled for a later phase; see `docs/HONESTY.md` for exactly what is real vs. scaffolded today. Demand outputs use documented assumptions and synthetic data; they are not fitted forecasts.
 
+## Sign-in
+
+The app requires sign-in (ADR-014). Users live in the `users` table; create or reset one with:
+
+```powershell
+python -m backend.dbsetup                      # applies migrations, including 002_users
+python -m backend.auth_users someone@c5i.ai    # prompts for a password, stores only its Argon2 hash
+```
+
+Set `AUTH_SECRET_KEY` (see `.env.example`) for any shared deployment, and `AUTH_COOKIE_SECURE=1` behind HTTPS.
+
+## Workspaces, governance pages and AI cost
+
+After signing in, `/` is the hub: shared scenario workspaces (autosaved, with conflict protection). The sidebar also has the **Agent runs** history and the **Audit and AI usage** page. A workspace can be exported as a PowerPoint from its header. AI cost is tokens times the rates in `backend/ai_pricing.py`; update them (and `RATE_VERSION`) when the provider changes prices. See ADR-015.
+
 ## PostgreSQL and environment configuration
 
 1. Copy `.env.example` to `.env` and replace the local database password (and add provider API keys only when needed).

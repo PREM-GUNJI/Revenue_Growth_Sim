@@ -8,6 +8,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from pydantic import ValidationError
 
 from backend.agent.schemas import AgentAnswer, AgentPlan, PlannerPlan
 
@@ -22,6 +23,7 @@ class OpenAILLM:
     """Uses Responses structured outputs; all scenario arithmetic stays in AgentTools."""
 
     temperature = 0
+    provider = "openai"
 
     def __init__(self, client: OpenAI | None = None):
         self.model_id = os.getenv("OPENAI_MODEL", "gpt-5.5").strip()
@@ -31,6 +33,18 @@ class OpenAILLM:
         if not self.model_id:
             raise OpenAILLMError("OPENAI_MODEL is empty")
         self._client = client or OpenAI(api_key=api_key, timeout=60.0, max_retries=2)
+        # Tokens spent by every call this instance makes (plan, draft, auditor retries), for the audit page.
+        self.usage = {"calls": 0, "input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0}
+
+    def _record_usage(self, response: Any) -> None:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return
+        details = getattr(usage, "input_tokens_details", None)
+        self.usage["calls"] += 1
+        self.usage["input_tokens"] += int(getattr(usage, "input_tokens", 0) or 0)
+        self.usage["cached_input_tokens"] += int(getattr(details, "cached_tokens", 0) or 0)
+        self.usage["output_tokens"] += int(getattr(usage, "output_tokens", 0) or 0)
 
     def _parse(self, schema: type, instructions: str, payload: dict[str, Any]):
         try:
@@ -43,7 +57,12 @@ class OpenAILLM:
                 text_format=schema,
             )
         except Exception as exc:
-            raise OpenAILLMError("OpenAI request failed: " + type(exc).__name__) from exc
+            if isinstance(exc, ValidationError):
+                raise OpenAILLMError("OpenAI returned a plan or answer that did not match the expected schema") from exc
+            # Class and HTTP status only: provider messages can echo parts of the API key.
+            status = getattr(exc, "status_code", None)
+            raise OpenAILLMError("OpenAI request failed: " + type(exc).__name__ + (f" (HTTP {status})" if status else "")) from exc
+        self._record_usage(response)
         parsed = response.output_parsed
         if parsed is None:
             raise OpenAILLMError("OpenAI returned no structured result")

@@ -3,12 +3,35 @@
 from __future__ import annotations
 
 import re
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from backend.agent.schemas import AgentAnswer, ToolEvent
+from backend.assumptions.assumptions import FORMATS, PACK_SIZE_L
 
 _NUMBER = re.compile(r"(?<![\w-])[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?%?")
+
+
+def _pack_label_pattern() -> re.Pattern[str]:
+    """Pack names as people write them ("500ml", "500 ml", "1.5 L", "6 x 330ml"), built from the registry's formats.
+
+    These are product labels, not claims about results, so they must not be checked as numbers. Only sizes
+    the registry actually defines are exempt: an invented "700ml" is still an ungrounded number.
+    """
+    forms: list[str] = []
+    for format_id in FORMATS:
+        match = re.search(r"(?:(\d+)x)?(\d+)ml$", format_id)
+        if match is None:
+            continue
+        count, size = match.group(1), match.group(2)
+        forms.append(rf"{count}\s*[x×]\s*{size}\s*ml" if count else rf"{size}\s*ml")
+        litres = PACK_SIZE_L.get(format_id)
+        if litres is not None and not count:
+            forms.append(rf"{re.escape(format(litres, 'g'))}\s*(?:l|litres?|liters?)")
+    return re.compile(r"(?<![\w.])(?:" + "|".join(forms) + r")(?!\w)", re.IGNORECASE)
+
+
+_PACK_LABEL = _pack_label_pattern()
 
 
 def _rounded(value: str) -> Decimal | None:
@@ -44,7 +67,7 @@ def check_numeric_grounding(answer: AgentAnswer, events: list[ToolEvent]) -> tup
     issues: list[str] = []
     checked = 0
     for text in texts:
-        for token in _NUMBER.findall(text):
+        for token in _NUMBER.findall(_PACK_LABEL.sub(" ", text)):
             number = _rounded(token)
             if number is None:
                 continue

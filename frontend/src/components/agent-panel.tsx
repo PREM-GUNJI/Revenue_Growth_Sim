@@ -10,7 +10,7 @@ const GOALS = [
 const RESEARCH_TOOLS = ["run_wtp", "run_gabor_granger", "run_van_westendorp", "run_conjoint_simulation"]
 const chipClass = (claim: AgentClaim) => claim.research_id ? "border-edge/50 bg-edge/10" : claim.label === "Recommended" ? "border-primary/50 bg-primary/10" : "bg-card"
 
-export function AgentPanel({ onAcceptScenario }: { onAcceptScenario: (scenario: ApiScenario) => void }) {
+export function AgentPanel({ onAcceptScenario, workspaceId }: { onAcceptScenario: (scenario: ApiScenario) => void; workspaceId?: string }) {
   const [goal, setGoal] = useState(GOALS[0])
   const [run, setRun] = useState<AgentApiRun>()
   const [error, setError] = useState<string>()
@@ -20,7 +20,7 @@ export function AgentPanel({ onAcceptScenario }: { onAcceptScenario: (scenario: 
     setLoading(true)
     setError(undefined)
     try {
-      setRun(await runAgent(text))
+      setRun(await runAgent(text, workspaceId))
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Agent request failed")
     } finally {
