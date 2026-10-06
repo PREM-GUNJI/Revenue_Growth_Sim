@@ -8,12 +8,22 @@ listing every id isn't a computation that should count toward coverage
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+from dataclasses import asdict
 
-from backend.api.schemas import AssumptionOut
-from backend.assumptions.assumptions import ASSUMPTIONS
+from fastapi import FastAPI, HTTPException
+from fastapi.encoders import jsonable_encoder
+
+from backend.api.schemas import AssumptionOut, EvaluateIn, ExportIn, ImportIn, ScenarioIn, SweepIn
+from backend.assumptions.assumptions import ASSUMPTIONS, SKUS
+from backend.engine.batch import ENGINE_VERSION, _data_hash, _support_envelope, evaluate_batch
+from backend.engine.ids import expand_scenario, scenario_id
+from backend.engine.scenario import Lever, Scenario
+from backend.engine.support import nearest_supported
+from backend.model.backtest import spec_hash
+from backend.model.spec import build_param_draws
 
 app = FastAPI(title="Revenue Growth Scenario Simulator")
+API_EXPORT_VERSION = 1
 
 
 @app.get("/assumptions", response_model=list[AssumptionOut])
@@ -30,3 +40,92 @@ async def list_assumptions() -> list[AssumptionOut]:
         )
         for a in sorted(ASSUMPTIONS.values(), key=lambda a: a.id)
     ]
+
+
+@app.get("/healthz")
+async def healthz() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/model/info")
+async def model_info() -> dict:
+    return {"engine_version": ENGINE_VERSION, "model_spec_hash": spec_hash(),
+            "data_hash": _data_hash(), "sku_count": len(SKUS),
+            "assumption_count": len(ASSUMPTIONS), "deterministic": True}
+
+
+@app.get("/envelope")
+async def envelope_info() -> dict:
+    env = _support_envelope()
+    return {"price_index_p1_p99": env.baselines.price_index_p1_p99,
+            "promo_depth_observed": env.baselines.promo_depth_observed,
+            "formats": env.coverage.formats, "mechanics": env.coverage.mechanics,
+            "depth_steps": env.coverage.depth_steps,
+            "price_bin_edges": env.coverage.price_bin_edges.tolist(),
+            "joint_coverage_counts": env.coverage.counts.tolist(),
+            "minimum_local_rows": ASSUMPTIONS["A-022"].value,
+            "comfortable_local_rows": ASSUMPTIONS["A-023"].value}
+
+
+@app.post("/scenarios/evaluate")
+async def evaluate(request: EvaluateIn) -> list[dict]:
+    draws = build_param_draws(k=request.k, seed=request.seed)
+    return jsonable_encoder([asdict(x) for x in evaluate_batch(request.scenarios, draws)])
+
+
+@app.post("/scenarios/nearest_supported")
+async def nearest(request: ScenarioIn) -> dict:
+    env = _support_envelope()
+    suggestion = nearest_supported(request.scenario, env)
+    decision = env.check(suggestion.scenario)
+    if decision.status == "REFUSED":
+        raise HTTPException(status_code=500, detail="nearest-supported invariant failed")
+    return {"scenario": suggestion.scenario.model_dump(mode="json"),
+            "scenario_id": scenario_id(expand_scenario(suggestion.scenario)),
+            "distance": suggestion.distance, "status": decision.status}
+
+
+@app.post("/scenarios/sweep")
+async def sweep(request: SweepIn) -> list[dict]:
+    if request.sku_id not in {item["sku_id"] for item in SKUS}:
+        raise HTTPException(status_code=422, detail="unknown sku_id")
+    default = request.scenario.levers.get(request.sku_id, Lever())
+    mechanic = "TPR" if request.lever == "promo_depth_pct" and default.mechanic == "none" else default.mechanic
+    scenarios = []
+    for value in request.values:
+        source = request.scenario.model_copy(deep=True)
+        prior = source.levers.get(request.sku_id, Lever())
+        changes = {request.lever: value}
+        if request.lever == "promo_depth_pct":
+            changes["mechanic"] = "none" if value == 0 else mechanic
+            if value == 0:
+                changes["promo_weeks_per_month"] = 0.0
+        source.levers[request.sku_id] = prior.model_copy(update=changes)
+        scenarios.append(source)
+    draws = build_param_draws(k=request.k, seed=request.seed)
+    return jsonable_encoder([asdict(x) for x in evaluate_batch(scenarios, draws)])
+
+
+def _export_payload(scenario: Scenario, k: int, seed: int) -> dict:
+    result = evaluate_batch([scenario], build_param_draws(k=k, seed=seed))[0]
+    return {"export_version": API_EXPORT_VERSION, "scenario": scenario.model_dump(mode="json"),
+            "scenario_id": result.scenario_id, "result_hash": result.result_hash,
+            "status": result.status, "k": k, "seed": seed}
+
+
+@app.post("/scenarios/export")
+async def export_scenario(request: ExportIn) -> dict:
+    return _export_payload(request.scenario, request.k, request.seed)
+
+
+@app.post("/scenarios/import")
+async def import_scenario(request: ImportIn) -> dict:
+    if request.export_version != API_EXPORT_VERSION:
+        raise HTTPException(status_code=422, detail="unsupported export version")
+    actual_id = scenario_id(expand_scenario(request.scenario))
+    if actual_id != request.scenario_id:
+        raise HTTPException(status_code=422, detail="scenario_id does not match scenario payload")
+    actual = _export_payload(request.scenario, request.k, request.seed)
+    if actual["result_hash"] != request.result_hash:
+        raise HTTPException(status_code=422, detail="result_hash does not match recomputed result")
+    return actual
