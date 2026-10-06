@@ -1,0 +1,21 @@
+[Unit]
+Description=Revenue Growth Scenario Simulator API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=revenue-growth
+Group=revenue-growth
+WorkingDirectory=/srv/revenue-growth-sim/current
+EnvironmentFile=-/etc/revenue-growth-sim.env
+ExecStart=/srv/revenue-growth-sim/current/.venv/bin/uvicorn backend.api.main:app --host 127.0.0.1 --port 8008
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/srv/revenue-growth-sim/current/data
+
+[Install]
+WantedBy=multi-user.target

@@ -39,11 +39,6 @@ SEARCH_DIRS = [
 # "AC-xxx" mention in DEFECTS.md (checked below) — this is not an escape
 # hatch, it is a cross-checked, honestly logged gap.
 KNOWN_GAPS = {
-    "024": (
-        "Phase 15 Playwright e2e smoke test for the comparison board "
-        "(tests/e2e/ is scaffolded with only __init__.py; no browser test "
-        "has been written or run yet)."
-    ),
     "027": (
         "Phase 19 (containerised deploy + rollback) has not started. "
         "BRD.md itself specifies 'Evidence: docs/ops/ROLLBACK_EVIDENCE.md' "

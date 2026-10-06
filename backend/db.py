@@ -50,7 +50,9 @@ def initialize_database() -> bool:
     engine = get_engine()
     if engine is None:
         return False
-    Base.metadata.create_all(engine)
+    from backend.migrations.runner import upgrade_database
+
+    upgrade_database(engine)
     return True
 
 

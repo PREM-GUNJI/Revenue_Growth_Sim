@@ -88,3 +88,13 @@ export function runAgent(goal: string) {
     method: "POST", body: JSON.stringify({ goal }),
   })
 }
+
+export interface ResearchCandidateResponse {
+  research: { methodology: string; research_id: string; sample_size: number; source_data_hash: string; result_hash: string }
+  scenarios: Array<{ scenario: ApiScenario; scenario_id: string; status: "SUPPORTED" | "EDGE" | "REFUSED"; result_hash: string; provenance: { candidate: { price: number; pack: string }; research_id: string; methodology: string; model_version: string }; refusal_reasons: Array<{message: string}>; nearest_supported_scenario: ApiScenario | null }>
+}
+export function runResearchToScenarios(methodology = "Willingness to Pay") {
+  return request<ResearchCandidateResponse>("/pricing/research-to-scenarios", {
+    method: "POST", body: JSON.stringify({ methodology, seed: 42, sample_size: 250 }),
+  })
+}

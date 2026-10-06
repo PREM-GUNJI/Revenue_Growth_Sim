@@ -60,3 +60,8 @@ markers = [
 
 [tool.bandit]
 exclude_dirs = [".venv", "tests", "docs"]
+
+[dependency-groups]
+dev = [
+    "python-pptx>=1.0.2",
+]

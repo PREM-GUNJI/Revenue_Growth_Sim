@@ -341,6 +341,18 @@ SUPPORT_DECISION_CACHE_SIZE = Assumption(
     rationale="Bounds memory used to reuse deterministic support decisions for repeated scenario levers.",
     valid_range=(128, 131072),
 )
+SYNTHETIC_CONSUMER_SAMPLE = Assumption(
+    id="A-026", label="Default synthetic consumer sample size", value=250,
+    unit="respondents", source="modelling-choice",
+    rationale="A fixed illustrative sample keeps consumer evidence reproducible and is not a claim about real research sample adequacy.",
+    valid_range=(1, 10000),
+)
+CONJOINT_UTILITY_SCALE = Assumption(
+    id="A-027", label="Conjoint supplied utility scale", value=1.0,
+    unit="utility units", source="modelling-choice",
+    rationale="Multinomial logit uses supplied synthetic utilities without fitting or estimating them.",
+    valid_range=(0.01, 10.0),
+)
 
 ASSUMPTIONS: dict[str, Assumption] = {
     **{a.id: a for a in OWN_ELASTICITY_BY_FORMAT.values()},
@@ -364,6 +376,8 @@ ASSUMPTIONS: dict[str, Assumption] = {
     JOINT_SUPPORT_COMFORT_ROWS.id: JOINT_SUPPORT_COMFORT_ROWS,
     SCENARIO_CHUNK_SIZE.id: SCENARIO_CHUNK_SIZE,
     SUPPORT_DECISION_CACHE_SIZE.id: SUPPORT_DECISION_CACHE_SIZE,
+    SYNTHETIC_CONSUMER_SAMPLE.id: SYNTHETIC_CONSUMER_SAMPLE,
+    CONJOINT_UTILITY_SCALE.id: CONJOINT_UTILITY_SCALE,
 }
 
 

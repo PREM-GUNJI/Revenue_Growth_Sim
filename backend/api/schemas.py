@@ -50,3 +50,23 @@ class SweepIn(BaseModel):
 
 class AgentRunIn(BaseModel):
     goal: str = Field(min_length=1, max_length=4000)
+
+
+class ConsumerEvidenceIn(BaseModel):
+    seed: int = Field(default=42, ge=0)
+    sample_size: int = Field(default=250, ge=1, le=10000)
+
+
+class ResearchIn(ConsumerEvidenceIn):
+    methodology: str = Field(pattern="^(Willingness to Pay|Gabor-Granger|Van Westendorp Price Sensitivity Meter)$")
+    prices: list[float] = Field(default_factory=list, max_length=100)
+
+
+class ConjointIn(ConsumerEvidenceIn):
+    alternatives: list[dict] = Field(min_length=1, max_length=50)
+    utilities: dict[str, float]
+
+
+class ResearchToScenariosIn(ResearchIn):
+    brand: str = "Aurora"
+    promotion_depth_pct: float = Field(default=0, ge=0, le=100)

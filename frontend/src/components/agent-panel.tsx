@@ -1,4 +1,4 @@
-﻿import { useState } from "react"
+import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { runAgent, type AgentApiRun } from "@/lib/api"
 import type { ApiScenario } from "@/lib/api"
@@ -29,12 +29,12 @@ export function AgentPanel({ onAcceptScenario }: AgentPanelProps) {
   const rows = Array.isArray(evaluations) ? evaluations : []
 
   return <section className="space-y-4">
-    <div className="space-y-2 rounded-lg border p-4">
-      <h2 className="font-semibold">Revenue growth agent</h2>
-      <p className="text-sm text-muted-foreground">OpenAI proposes scenarios; the deterministic engine evaluates them, and the Auditor checks claims before they are shown.</p>
+    <div className="space-y-2 rounded-lg border bg-card p-5">
+      <h2 className="font-display text-lg font-semibold">Revenue growth agent</h2>
+      <p className="text-sm text-muted-foreground">The model proposes scenarios; the deterministic engine evaluates them, and the Auditor checks claims before they are shown.</p>
       <label className="block text-sm font-medium" htmlFor="agent-goal">Goal</label>
-      <textarea id="agent-goal" rows={3} maxLength={4000} value={goal} onChange={(event) => setGoal(event.target.value)} className="w-full rounded border bg-background p-2 text-sm" />
-      <button type="button" disabled={loading || !goal.trim()} onClick={() => void submit()} className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50">{loading ? "Analyzing…" : "Run agent"}</button>
+      <textarea id="agent-goal" rows={3} maxLength={4000} value={goal} onChange={(event) => setGoal(event.target.value)} className="w-full rounded-md border bg-background p-3 text-sm" />
+      <button type="button" disabled={loading || !goal.trim()} onClick={() => void submit()} className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{loading ? "Analyzing…" : "Run agent"}</button>
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     </div>
     {run && <div className="space-y-4">
@@ -44,8 +44,8 @@ export function AgentPanel({ onAcceptScenario }: AgentPanelProps) {
         <span className="text-xs text-muted-foreground">Total {run.wall_time_ms.toFixed(0)} ms · model {run.model_time_ms.toFixed(0)} ms · tools {run.tool_time_ms.toFixed(0)} ms · trace {run.trace_id}</span>
       </div>
       {!run.audit.passed && <ul className="list-disc pl-5 text-sm text-destructive">{run.audit.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>}
-      <article className="space-y-2 rounded-lg border p-4">
-        <h3 className="font-semibold">Summary</h3>
+      <article className="space-y-2 rounded-lg border bg-card p-5">
+        <h3 className="font-display text-lg font-semibold">Summary</h3>
         <p className="text-sm">{run.answer.summary}</p>
         {run.answer.recommendations.map((item) => <p key={item} className="text-sm">{item}</p>)}
         {run.answer.refusals.map((item) => <p key={item} className="rounded bg-destructive/5 p-2 text-sm text-destructive">{item}</p>)}
@@ -53,12 +53,12 @@ export function AgentPanel({ onAcceptScenario }: AgentPanelProps) {
         <div className="flex flex-wrap gap-2">{run.answer.claims.map((claim) => <span key={claim.claim_id} className="rounded-full border px-2 py-1 text-xs"><strong>{claim.label}</strong>: {claim.text}</span>)}</div>
       </article>
       <section className="space-y-2">
-        <h3 className="font-semibold">Proposed comparison board</h3>
+        <h3 className="font-display text-lg font-semibold">Proposed comparison board</h3>
         {run.scenarios.map((scenario, index) => {
           const result = rows[index] as { status?: string; portfolio_gp?: { value: number } | null } | undefined
-          return <div key={index} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm">
+          return <div key={index} className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-card p-3 text-sm">
             <div><span className="font-medium">{scenario.name || "Scenario " + (index + 1)}</span><span className="ml-2 text-muted-foreground">{result?.status ?? "pending evaluation"}</span>{result?.status !== "REFUSED" && result?.portfolio_gp && <span className="ml-2">GP {result.portfolio_gp.value.toLocaleString()}</span>}</div>
-            <button type="button" onClick={() => onAcceptScenario(scenario)} className="rounded border px-2 py-1 text-xs">Add to tray</button>
+            <button type="button" onClick={() => onAcceptScenario(scenario)} className="rounded-md border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary">Add to tray</button>
           </div>
         })}
       </section>

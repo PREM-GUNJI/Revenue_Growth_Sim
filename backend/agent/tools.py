@@ -20,6 +20,8 @@ from backend.engine.scenario import Lever, Scenario
 from backend.engine.support import nearest_supported
 from backend.model.backtest import spec_hash
 from backend.model.spec import ParamDraws, build_param_draws
+from backend.research.evidence import (conjoint_simulation, generate_consumers,
+                                      research_to_scenarios, run_research)
 
 
 class ToolError(ValueError):
@@ -97,6 +99,37 @@ class AgentTools:
     def _tool_get_model_info(self) -> dict:
         return {"engine_version": ENGINE_VERSION, "data_hash": _data_hash(),
                 "model_spec_hash": spec_hash(), "deterministic": True}
+
+    def _tool_get_pricing_methodologies(self) -> dict:
+        return {"priority_1": ["Willingness to Pay", "Gabor-Granger",
+                               "Van Westendorp Price Sensitivity Meter"],
+                "priority_2": ["Conjoint simulation"]}
+
+    def _tool_get_consumer_evidence(self, seed: int = 42, sample_size: int = 250) -> dict:
+        return generate_consumers(seed, sample_size)
+
+    def _tool_run_wtp(self, seed: int = 42, sample_size: int = 250) -> dict:
+        return asdict(run_research("Willingness to Pay", generate_consumers(seed, sample_size)))
+
+    def _tool_run_gabor_granger(self, prices: list[float], seed: int = 42,
+                                sample_size: int = 250) -> dict:
+        return asdict(run_research("Gabor-Granger", generate_consumers(seed, sample_size), prices))
+
+    def _tool_run_van_westendorp(self, seed: int = 42, sample_size: int = 250) -> dict:
+        return asdict(run_research("Van Westendorp Price Sensitivity Meter",
+                                   generate_consumers(seed, sample_size)))
+
+    def _tool_run_conjoint_simulation(self, alternatives: list[dict], utilities: dict[str, float],
+                                      seed: int = 42, sample_size: int = 250) -> dict:
+        return conjoint_simulation(generate_consumers(seed, sample_size), alternatives, utilities)
+
+    def _tool_research_to_scenarios(self, methodology: str = "Willingness to Pay",
+                                    seed: int = 42, sample_size: int = 250,
+                                    prices: list[float] | None = None, brand: str = "Aurora",
+                                    promotion_depth_pct: float = 0) -> list[dict]:
+        evidence = generate_consumers(seed, sample_size)
+        research = run_research(methodology, evidence, prices)
+        return research_to_scenarios(research, brand, promotion_depth_pct)
 
     def _tool_get_envelope(self) -> dict:
         env = _support_envelope()

@@ -24,6 +24,9 @@ def test_list_assumptions_every_entry_has_a_rationale():
 
 def test_model_info_and_envelope_are_exposed():
     assert client.get("/model/info").json()["deterministic"] is True
+    ready = client.get("/readyz")
+    assert ready.status_code == 200
+    assert ready.json()["status"] == "ready"
     envelope = client.get("/envelope").json()
     assert set(envelope["price_index_p1_p99"]) == set(SKU_IDS)
     assert envelope["minimum_local_rows"] >= 1

@@ -14,20 +14,67 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException
 from fastapi.encoders import jsonable_encoder
 
-from backend.api.schemas import AgentRunIn, AssumptionOut, EvaluateIn, ExportIn, ImportIn, ScenarioIn, SweepIn
-from backend.assumptions.assumptions import ASSUMPTIONS, SKUS
-from backend.db import database_status, list_runs, save_run
 from backend.agent.openai_llm import OpenAILLM, OpenAILLMError
 from backend.agent.orchestrator import AgentOrchestrator
+from backend.api.schemas import (
+    AgentRunIn,
+    AssumptionOut,
+    ConjointIn,
+    ConsumerEvidenceIn,
+    EvaluateIn,
+    ExportIn,
+    ImportIn,
+    ResearchIn,
+    ResearchToScenariosIn,
+    ScenarioIn,
+    SweepIn,
+)
+from backend.assumptions.assumptions import ASSUMPTIONS, SKUS
+from backend.db import database_status, list_runs, save_run
 from backend.engine.batch import ENGINE_VERSION, _data_hash, _support_envelope, evaluate_batch
 from backend.engine.ids import expand_scenario, scenario_id
 from backend.engine.scenario import Lever, Scenario
 from backend.engine.support import nearest_supported
 from backend.model.backtest import spec_hash
 from backend.model.spec import build_param_draws
+from backend.research.evidence import (conjoint_simulation, generate_consumers,
+                                      research_to_scenarios, run_research)
 
 app = FastAPI(title="Revenue Growth Scenario Simulator")
 API_EXPORT_VERSION = 1
+
+
+@app.get("/pricing/methodologies")
+async def pricing_methodologies() -> dict:
+    return {"priority_1": ["Willingness to Pay", "Gabor-Granger",
+                           "Van Westendorp Price Sensitivity Meter"],
+            "priority_2": ["Conjoint simulation"], "optional": ["BPTO", "Price Ladder"]}
+
+
+@app.post("/pricing/consumer-evidence")
+async def consumer_evidence(request: ConsumerEvidenceIn) -> dict:
+    return generate_consumers(request.seed, request.sample_size)
+
+
+@app.post("/pricing/research")
+async def pricing_research(request: ResearchIn) -> dict:
+    evidence = generate_consumers(request.seed, request.sample_size)
+    result = run_research(request.methodology, evidence, request.prices or None)
+    return {**asdict(result), "label": "SYNTHETIC CONSUMER EVIDENCE"}
+
+
+@app.post("/pricing/conjoint")
+async def pricing_conjoint(request: ConjointIn) -> dict:
+    evidence = generate_consumers(request.seed, request.sample_size)
+    return conjoint_simulation(evidence, request.alternatives, request.utilities)
+
+
+@app.post("/pricing/research-to-scenarios")
+async def research_candidates(request: ResearchToScenariosIn) -> dict:
+    evidence = generate_consumers(request.seed, request.sample_size)
+    result = run_research(request.methodology, evidence, request.prices or None)
+    return {"research": asdict(result), "scenarios": research_to_scenarios(
+        result, request.brand, request.promotion_depth_pct)}
 
 
 @app.get("/assumptions", response_model=list[AssumptionOut])
@@ -49,6 +96,17 @@ async def list_assumptions() -> list[AssumptionOut]:
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/readyz")
+async def readyz() -> dict[str, str]:
+    """Verify the deterministic engine assets needed to serve scenarios."""
+    try:
+        _support_envelope()
+        _data_hash()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="engine assets are unavailable") from exc
+    return {"status": "ready", "engine_version": ENGINE_VERSION}
 
 
 @app.get("/database/health")

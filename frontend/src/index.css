@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@import "@fontsource-variable/bricolage-grotesque";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -128,3 +129,42 @@
     @apply font-sans;
     }
 }
+/* Aurora Growth Lab: aluminium paper, ink, one teal accent */
+@theme inline {
+  --font-display: 'Bricolage Grotesque Variable', 'Geist Variable', sans-serif;
+  --color-gain: var(--gain);
+  --color-loss: var(--loss);
+  --color-edge: var(--edge);
+  --color-ink: var(--ink);
+}
+:root {
+  --ink: #12201d;
+  --background: #eef0ea;
+  --foreground: #12201d;
+  --card: #fbfbf8;
+  --card-foreground: #12201d;
+  --primary: #0a7667;
+  --primary-foreground: #ffffff;
+  --secondary: #e4e8e0;
+  --secondary-foreground: #12201d;
+  --muted: #e4e8e0;
+  --muted-foreground: #58645f;
+  --accent: #dfe8e2;
+  --border: #d5dad0;
+  --input: #c9cfc4;
+  --ring: #0a7667;
+  --destructive: #b83a22;
+  --gain: #0a7667;
+  --loss: #b83a22;
+  --edge: #a8690b;
+  --radius: 0.5rem;
+}
+body { min-width: 320px; font-feature-settings: "tnum" 1, "cv11" 1; }
+.font-display { font-family: var(--font-display); font-optical-sizing: auto; }
+.num { font-family: var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+input[type="range"] { accent-color: var(--primary); width: 100%; height: 1.25rem; cursor: pointer; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.hatch { background-image: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in oklab, var(--loss) 14%, transparent) 6px 7px); }
+@keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.bar { transform-origin: var(--origin, left); animation: grow 500ms cubic-bezier(.2,.7,.2,1) both; }
+@media (prefers-reduced-motion: reduce) { .bar { animation: none; } }

@@ -1,6 +1,8 @@
 against := uv run python -m tasks
 
-.PHONY: bootstrap lint test generate backtest bench evaluate replay serve demo demo-check smoke rollback
+VERSION ?= dev
+
+.PHONY: bootstrap lint test generate backtest bench evaluate replay serve demo demo-check smoke deploy rollback
 
 bootstrap:
 	$(against) bootstrap
@@ -36,7 +38,10 @@ demo-check:
 	$(against) demo-check
 
 smoke:
-	$(against) smoke
+	DEPLOY_BASE_URL=$${DEPLOY_BASE_URL:-http://127.0.0.1:5110} uv run python -m deploy.ops smoke
 
 rollback:
-	$(against) rollback
+	bash deploy/vm/rollback.sh $(VERSION)
+
+deploy:
+	bash deploy/vm/deploy.sh $(VERSION)

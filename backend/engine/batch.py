@@ -374,6 +374,11 @@ def evaluate_batch(scenarios: list[Scenario], draws: ParamDraws) -> list[Scenari
     output = []
     for index, scenario in zip(request_to_unique, scenarios, strict=True):
         item = unique_results[index]
+        if item.status != "REFUSED":
+            # Results are read-only values to engine callers. Reusing the
+            # value avoids copying five 12-SKU maps for duplicate scenarios.
+            output.append(item)
+            continue
         if item.status == "REFUSED":
             item = copy.deepcopy(item)
             if item.nearest_supported_scenario is not None:
