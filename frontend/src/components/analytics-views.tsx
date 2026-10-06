@@ -79,7 +79,7 @@ function PricePromoHeatmap({ cells, baselineGp, onGenerate, loading }: {
   const depths = [0, 10, 20, 30]
   const byKey = new Map(cells.map((cell) => [cell.price.toFixed(2) + ":" + cell.depth, cell]))
   return <section className="rounded-lg border bg-card p-5">
-    <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-display text-lg font-semibold">Price × promotion sweep</h3><p className="text-xs text-muted-foreground">Margin change for Aurora can; striped cells are refused by the support envelope.</p></div>
+    <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-display text-lg font-semibold">Price × promotion sweep</h3><p className="text-xs text-muted-foreground">Margin change for the pack selected in the builder; striped cells are refused by the support envelope.</p></div>
       <button type="button" onClick={onGenerate} disabled={loading} className="rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">{loading ? "Calculating…" : cells.length ? "Refresh heatmap" : "Generate heatmap"}</button>
     </div>
     <div className="mt-3 grid grid-cols-[auto_repeat(5,minmax(3.5rem,1fr))] gap-1 text-center text-xs">

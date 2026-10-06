@@ -58,3 +58,11 @@ Each AC below will be linked to a named test once its phase is implemented (`tes
 - **AC-025**: A clean clone of the repository reaches a running demo (API + UI) using two documented commands. *Test: `.github/workflows/clean_clone.yml`*
 - **AC-026**: A PR that regresses any threshold in `eval_thresholds.yaml` is blocked from merging by CI. *Test: `.github/workflows/eval-gate.yml`, demonstrated on a `demo/regression` branch*
 - **AC-027**: Deploying a deliberately broken version fails its readiness check, and `make rollback VERSION=<prior>` restores the prior version with a passing smoke test. *Evidence: `docs/ops/ROLLBACK_EVIDENCE.md`*
+
+### Supporting synthetic consumer evidence (additive to the core scope)
+- **AC-028**: Synthetic consumer generation is deterministic for a seed, reproduces its `data_hash`, contains no PII, stays within valid ranges, and is labelled SYNTHETIC CONSUMER EVIDENCE. *Test: `tests/research/test_consumers_and_methods.py`*
+- **AC-029**: Willingness to Pay, Gabor-Granger and Van Westendorp are deterministic, return a structured `ResearchResult` (methodology, research_id, sample size, inputs, outputs, candidates, assumptions, limitations, source and result hashes) and match known worked examples. *Test: `tests/research/test_consumers_and_methods.py`*
+- **AC-030**: The conjoint simulation uses only supplied part-worths (registry A-037), is deterministic, its choice shares sum to 100%, and no fitting or ML is involved. *Test: `tests/research/test_conjoint_and_bridge.py`*
+- **AC-031**: Research candidates map to engine scenarios, the engine alone produces volume/revenue/margin, and the full provenance chain (research_id to result_hash) is preserved. *Test: `tests/research/test_conjoint_and_bridge.py`*
+- **AC-032**: A research candidate outside the support envelope is REFUSED with no modeled numbers and is never clamped; the nearest supported alternative is returned separately. *Test: `tests/research/test_conjoint_and_bridge.py`*
+- **AC-033**: The agent chooses an evidence method appropriate to the goal, cannot supply utilities or WTP, cannot bypass a refusal, labels research-derived claims with their research_id, and never recommends on research evidence alone. *Test: `tests/agent/test_research_agent.py`*

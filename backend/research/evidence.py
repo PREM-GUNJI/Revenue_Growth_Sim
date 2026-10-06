@@ -491,10 +491,13 @@ def default_conjoint_alternatives(brand: str = "Aurora", pack: str = "pet_500ml"
     rival = next(b for b in BRANDS if b != brand)
     mid = grid.index(1.0)
     lower, higher = grid[mid - 1], grid[mid + 1]
-    return [{"brand": brand, "pack": pack, "price": round(ref * m, 2), "promotion": "None"}
-            for m in (lower, 1.0, higher)] + [
+    return [
+        {"brand": brand, "pack": pack, "price": round(ref * m, 2), "promotion": "None"}
+        for m in (lower, 1.0, higher)
+    ] + [
         {"brand": brand, "pack": pack, "price": round(ref, 2), "promotion": "10% off"},
-        {"brand": rival, "pack": pack, "price": round(ref, 2), "promotion": "None"}]
+        {"brand": rival, "pack": pack, "price": round(ref, 2), "promotion": "None"},
+    ]
 
 
 def conjoint_defaults() -> dict:
@@ -508,6 +511,7 @@ def conjoint_defaults() -> dict:
         "packs": list(utilities["pack"]),
         "promotions": list(utilities["promotion"]),
         "reference_prices": {pack: reference_price(pack) for pack in FORMATS},
+        "default_alternatives": default_conjoint_alternatives(),
     }
 
 

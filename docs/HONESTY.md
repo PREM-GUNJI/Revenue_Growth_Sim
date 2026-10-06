@@ -136,3 +136,12 @@ records this as a deliberate, scoped deviation:
   fresh ubuntu-latest runner with no pre-existing `node_modules`, where this
   class of lock cannot occur. Flagged here rather than silently assumed to
   work everywhere.
+
+## Synthetic consumer evidence layer (Phase 21)
+
+Real: deterministic synthetic respondents and comments, WTP / Gabor-Granger / Van Westendorp rules, a multinomial-logit conjoint *simulation*, the candidate-to-engine bridge with provenance, refusal of unsupported candidates, agent evidence tools and the research-aware claim rules. All covered by AC-028..AC-033.
+
+Not real, by design: the respondents, comments and part-worths are synthetic and illustrative; no utility estimation or fitting exists; no real consumer research is claimed; no causal claim is made. Van Westendorp is computed from synthetic four-question answers derived from each respondent WTP, so its price points describe the generator more than any market. The "larger pack" joint presets express pack steering as relative price/promotion positioning because the engine has no pack-swap lever (ADR-013).
+
+Open: BPTO and Price Ladder (optional in the request) are not implemented; the live OpenAI planner has the research field in its schema but its method choice is covered by prompt guidance, not by an offline eval.
+

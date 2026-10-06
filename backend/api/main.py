@@ -30,7 +30,7 @@ from backend.api.schemas import (
     ScenarioIn,
     SweepIn,
 )
-from backend.assumptions.assumptions import ASSUMPTIONS, SKUS
+from backend.assumptions.assumptions import ASSUMPTIONS, OWN_ELASTICITY_BY_FORMAT, SKUS
 from backend.db import database_status, list_runs, save_run
 from backend.engine.batch import ENGINE_VERSION, _data_hash, _support_envelope, evaluate_batch
 from backend.engine.ids import expand_scenario, scenario_id
@@ -216,6 +216,7 @@ async def envelope_info() -> dict:
             "promo_depth_observed": env.baselines.promo_depth_observed,
             "formats": env.coverage.formats, "mechanics": env.coverage.mechanics,
             "depth_steps": env.coverage.depth_steps,
+            "own_elasticity_assumption_by_format": {f: a.id for f, a in OWN_ELASTICITY_BY_FORMAT.items()},
             "price_bin_edges": env.coverage.price_bin_edges.tolist(),
             "joint_coverage_counts": env.coverage.counts.tolist(),
             "minimum_local_rows": ASSUMPTIONS["A-022"].value,

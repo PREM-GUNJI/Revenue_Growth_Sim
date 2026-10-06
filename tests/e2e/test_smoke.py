@@ -54,6 +54,7 @@ def stop_process_tree(process: subprocess.Popen[bytes]) -> None:
 @pytest.fixture(scope="module")
 def ui_url() -> Iterator[str]:
     env = os.environ.copy()
+    env["VITE_API_TARGET"] = "http://127.0.0.1:8000"  # vite.config.ts defaults to :8008
     api = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "backend.api.main:app", "--host", "127.0.0.1", "--port", "8000"],
         cwd=ROOT,
@@ -82,6 +83,7 @@ def test_ac024_loser_and_refusal_render_with_nearest_action(ui_url: str) -> None
         browser = playwright.chromium.launch()
         page: Page = browser.new_page()
         page.goto(ui_url, wait_until="networkidle")
+        page.get_by_role("button", name="Comparison board").first.click()  # Overview is the landing view
         page.get_by_text("worse than baseline", exact=False).first.wait_for(timeout=30_000)
         assert page.get_by_text("REFUSED", exact=False).count() >= 1
         nearest = page.get_by_role("button", name="Use nearest supported scenario")

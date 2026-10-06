@@ -1,4 +1,4 @@
-﻿# Task plan
+# Task plan
 
 Sequenced phases, derived from `docs/plan/PLAN.md` section 18 and amended by `docs/plan/CAPSTONE_COMPLIANCE.md` section 11 (security/deploy/spec-pack/agent-record moved into MVP). Full technical design for each phase is in the approved plan file this build started from; this table tracks owner, dependency and status. Update `status` as work lands; do not start a phase until the previous phase's acceptance check (PLAN.md section 18, or the AC in `docs/spec/BRD.md`) passes.
 
@@ -22,6 +22,7 @@ Sequenced phases, derived from `docs/plan/PLAN.md` section 18 and amended by `do
 | 16-17 | README (generated examples), HONESTY.md, clean-clone CI, AC traceability test, eval gate, `demo/regression` branch | D | 14, 15 | AC-025, AC-026 | **done** — `tests/test_ac_traceability.py` (25/27 ACs covered, 2 logged gaps), `docs/HONESTY.md`, generated README worked examples, `eval_thresholds.yaml` + eval-gate CI, `clean_clone.yml`; `demo/regression` branch not pushed (left uncommitted/local per instruction) |
 | 18 | Security scans (pip-audit, bandit, gitleaks, trivy), TRIAGE, AGENT_BOUNDARY, threat model | D | 16-17 | Scans clear/risk-accepted; key absent from repo/logs/traces | **in progress** — pip-audit/bandit/gitleaks CI and documented STRIDE model are present; Trivy awaits a runnable Docker daemon and built image |
 | 19 | Containerisation, non-prod deploy, health checks, rollback, runbook, smoke test | D | 18 | AC-027 | **in progress** — non-root API/web Dockerfiles, compose stack, `/readyz`, and fixed-hash smoke verifier added; rollback demonstration awaits Docker Desktop activation |
+| 21 | Synthetic consumer evidence layer: consumers, WTP/GG/VW, conjoint simulation, research-to-RGM bridge + provenance, agent evidence tools, Price/Pack/Promotion lever views | all | 14, 15 | AC-028..AC-033 | **done** - `backend/research/evidence.py`, registry A-026..A-037, `/pricing/*` endpoints, agent research plan + label rules, `tests/research/`, `tests/agent/test_research_agent.py`, `tests/api/test_research_endpoints.py`; see ADR-013 |
 | V2 | Trade-off plane, waterfall, sweep heatmap, meeting-mode sliders, trace viewer, claim chips | D/C | cut first if time is short | — | not started |
 | 20 | Submission pack, rubric evidence index, QA prep, rehearsal | all | 19 | Submission checklist complete | not started |
 

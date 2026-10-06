@@ -1,4 +1,5 @@
-﻿// UI-facing comparison types; backend payload types are defined in lib/api.ts.
+import type { Provenance } from "@/lib/api"
+// UI-facing comparison types; backend payload types are defined in lib/api.ts.
 export type ScenarioStatus = "SUPPORTED" | "EDGE" | "REFUSED"
 export interface ScenarioDelta {
   volumePct: number
@@ -8,6 +9,8 @@ export interface ScenarioDelta {
 }
 export interface ScenarioResult {
   scenarioId: string
+  resultHash?: string
+  source?: Provenance
   name: string
   status: ScenarioStatus
   isBaseline?: boolean

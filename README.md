@@ -50,6 +50,30 @@ Deployment (containerisation, rollback) is scheduled for a later phase; see `doc
 
 The API loads `.env` for local development. `GET /database/health` reports connection status. `POST /scenario-runs` evaluates and saves one run; `GET /scenario-runs` lists the latest saved runs. The database tables are created on first use. OpenAI defaults to model `gpt-5.5`; provider integration remains a later phase.
 
+## Synthetic consumer evidence (supporting layer)
+
+The system uses synthetic consumer evidence as an upstream decision-support layer. Consumer research generates candidate prices/configurations, while the deterministic RGM engine remains the source of truth for modeled volume, revenue and margin.
+
+```
+Synthetic consumers -> WTP / Gabor-Granger / Van Westendorp / Conjoint simulation
+  -> candidate price / pack / promotion -> support envelope -> deterministic engine
+  -> volume / revenue / margin -> comparison board -> decision
+```
+
+- Code: `backend/research/evidence.py`. Research parameters are registry assumptions A-026..A-037; every research result carries a `research_id`, source data hash and result hash, and every candidate scenario carries the full provenance chain (research_id, methodology, sample/data hash, candidate, scenario_id, model version, assumptions, result_hash).
+- API: `POST /pricing/consumer-summary`, `/pricing/research`, `/pricing/research-to-scenarios`, `/pricing/conjoint`, `/pricing/conjoint-to-scenarios`, `GET /pricing/conjoint/defaults`.
+- Agent tools: `get_pricing_methodologies`, `get_consumer_evidence`, `run_wtp`, `run_gabor_granger`, `run_van_westendorp`, `run_conjoint_simulation`, `research_to_scenarios`. The agent cannot supply utilities or willingness-to-pay values.
+- UI: Overview, Scenario simulator (Price, Pack, Promotion levers and joint presets), Comparison board, AI decision assistant, plus the supporting Pricing evidence and Conjoint simulation workspaces.
+- Tests: `tests/research/`, `tests/agent/test_research_agent.py`, `tests/api/test_research_endpoints.py` (AC-028..AC-033). Decision record: `docs/spec/adr/ADR-013-synthetic-consumer-evidence-layer.md`.
+
+Limitations, stated plainly:
+- Consumer data is synthetic and so are the comments; they are not real customers or real research.
+- Research outputs are illustrative. No real consumer research is claimed and no causal claims are made.
+- Conjoint uses supplied utilities: it simulates choices and does not estimate or fit utilities.
+- No ML demand model is used. Nothing is trained or fitted.
+- The existing support-envelope limits still apply, so some research candidates are REFUSED with no numbers.
+- Research prices are in INR and indexed to a registry reference price per pack; the engine's currency is abstract.
+
 ## Worked examples
 
 <!-- BEGIN GENERATED WORKED EXAMPLES -->
