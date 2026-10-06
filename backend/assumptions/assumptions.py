@@ -326,11 +326,11 @@ JOINT_SUPPORT_COMFORT_ROWS = Assumption(
 SCENARIO_CHUNK_SIZE = Assumption(
     id="A-024",
     label="Scenario evaluation chunk size",
-    value=2048,
+    value=4096,
     unit="scenarios",
     source="modelling-choice",
     rationale="Bounds temporary array memory while keeping each scenario chunk vectorised across draws and SKUs.",
-    valid_range=(32, 2048),
+    valid_range=(32, 8192),
 )
 SUPPORT_DECISION_CACHE_SIZE = Assumption(
     id="A-025",
