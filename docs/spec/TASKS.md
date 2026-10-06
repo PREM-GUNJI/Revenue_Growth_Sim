@@ -1,4 +1,4 @@
-# Task plan
+﻿# Task plan
 
 Sequenced phases, derived from `docs/plan/PLAN.md` section 18 and amended by `docs/plan/CAPSTONE_COMPLIANCE.md` section 11 (security/deploy/spec-pack/agent-record moved into MVP). Full technical design for each phase is in the approved plan file this build started from; this table tracks owner, dependency and status. Update `status` as work lands; do not start a phase until the previous phase's acceptance check (PLAN.md section 18, or the AC in `docs/spec/BRD.md`) passes.
 
@@ -14,12 +14,16 @@ Sequenced phases, derived from `docs/plan/PLAN.md` section 18 and amended by `do
 | 5 | Support envelope, refusal output, nearest-supported, 500+ labelled refusal set | A/B | 4 | AC-010, AC-011, AC-012, AC-013 | **done** — per-SKU percentile/depth/joint checks; REFUSED results contain no metrics; separate nearest suggestion; sparse EDGE bands widened; 500 labelled cases, refusal/property suite green |
 | 6 | API, hashing, export/import | A/B | 5 | AC-014, AC-015 | **done** — evaluate/sweep/nearest/envelope/model-info APIs; versioned export/import recomputes and verifies hashes; 67 full-suite tests green |
 | 7 | Benchmarks and optimisation | A/B | 6 | AC-016 | **in progress** — reproducible K=200 benchmark and chunk/bulk-quantile/vectorized-bridge optimizations added; latest p95 passes 1/100, misses 1k/10k (1.11/45.72/360.27/4,412.54 ms versus <5/50/250/2,000 ms) |
-| 10-13 | Agent tools, orchestrator (ScriptedLLM), grounding, labels, Auditor, trace+replay | C | contracts (parallel with 1-7) | AC-017, AC-018, AC-020, AC-022 | not started |
-| 8 | React/shadcn comparison UI (tray, table, refusal cards, drawer) | D | contracts (parallel with 1-7) | AC-024 (partial: loser+refusal) | **shell scaffolded** (mock data; API wiring pending) |
-| 14 | Real Claude, ~40 agent evals, oracle, baselines | C | 7, 10-13 | AC-019, AC-021, AC-023 | not started |
-| 15 | Agent panel UI (chat, quick-start goals, Auditor badge, accept-to-board) | C | 8, 14 | AC-024 (agent board) | not started |
-| 16-17 | README (generated examples), HONESTY.md, clean-clone CI, AC traceability test, eval gate, `demo/regression` branch | D | 14, 15 | AC-025, AC-026 | not started |
-| 18 | Security scans (pip-audit, bandit, gitleaks, trivy), TRIAGE, AGENT_BOUNDARY, threat model | D | 16-17 | Scans clear/risk-accepted; key absent from repo/logs/traces | not started |
+| 8 | React/shadcn comparison UI (tray, table, refusal cards, drawer) | D | contracts (parallel with 1-7) | AC-024 (partial: loser+refusal) | **in progress** — live API, editable scenario tray, refusal/nearest flow and metadata wired; frontend production build passes; Playwright smoke evidence pending |
+| 9 | Trade-off plane, margin waterfall, price/promo heatmap | D | 8 | AC-024 analytics extension | **in progress** — views wired to evaluated engine outputs; browser smoke check pending |
+| 10-13 | Agent tools, orchestrator (ScriptedLLM), grounding, labels, Auditor, trace+replay | C | contracts (parallel with 1-7) | AC-017, AC-018, AC-020, AC-022 | **done** — scripted Planner/Executor/Auditor, tools, grounding, labels, trace/replay; see Phase 10-13 REVIEW_LOG entry |
+| 14 | OpenAI live provider (ADR-012 deviation from Claude-only plan), ~43 agent evals, oracle, baselines | C | 7, 10-13 | AC-019, AC-021, AC-023 | **done** — grounding/refusal integrity/injection resistance/label correctness 100%, optimality gap median 0.0% (budget <=2%); `agent_evals/` |
+| 15 | Agent panel UI (chat, quick-start goals, Auditor badge, accept-to-board) | C | 8, 14 | AC-024 (agent board) | **done** — `frontend/src/components/agent-panel.tsx` wired to live `/agent/run` |
+| 16-17 | README (generated examples), HONESTY.md, clean-clone CI, AC traceability test, eval gate, `demo/regression` branch | D | 14, 15 | AC-025, AC-026 | **done** — `tests/test_ac_traceability.py` (25/27 ACs covered, 2 logged gaps), `docs/HONESTY.md`, generated README worked examples, `eval_thresholds.yaml` + eval-gate CI, `clean_clone.yml`; `demo/regression` branch not pushed (left uncommitted/local per instruction) |
+| 18 | Security scans (pip-audit, bandit, gitleaks, trivy), TRIAGE, AGENT_BOUNDARY, threat model | D | 16-17 | Scans clear/risk-accepted; key absent from repo/logs/traces | **in progress** — pip-audit/bandit/gitleaks CI job, TRIAGE.md, AGENT_BOUNDARY.md done; trivy container scan and STRIDE threat model not started |
 | 19 | Containerisation, non-prod deploy, health checks, rollback, runbook, smoke test | D | 18 | AC-027 | not started |
 | V2 | Trade-off plane, waterfall, sweep heatmap, meeting-mode sliders, trace viewer, claim chips | D/C | cut first if time is short | — | not started |
 | 20 | Submission pack, rubric evidence index, QA prep, rehearsal | all | 19 | Submission checklist complete | not started |
+
+
+
