@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 
 from backend.assumptions.assumptions import SKU_IDS
@@ -76,7 +76,15 @@ def canonical_json(obj: object) -> bytes:
 def _expanded_payload(expanded: ExpandedScenario) -> dict:
     return {
         "schema_version": expanded.schema_version,
-        "levers": {sku: asdict(lv) for sku, lv in expanded.levers.items()},
+        "levers": {
+            sku: {
+                "price_bp": lv.price_bp,
+                "depth_pct": lv.depth_pct,
+                "mechanic": lv.mechanic,
+                "weeks_per_month": lv.weeks_per_month,
+            }
+            for sku, lv in expanded.levers.items()
+        },
         "cost_shock": dict(expanded.cost_shock),
     }
 
