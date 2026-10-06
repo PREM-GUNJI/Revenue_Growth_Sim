@@ -22,6 +22,10 @@ def register(name: str):
 
 
 def run(cmd: list[str]) -> int:
+    # On Windows, npm/npx ship as .cmd shims that CreateProcess can't exec
+    # directly without going through the shell.
+    if sys.platform == "win32" and cmd and cmd[0] in {"npm", "npx"}:
+        cmd = [cmd[0] + ".cmd", *cmd[1:]]
     print(f"+ {' '.join(cmd)}")
     return subprocess.call(cmd)
 
@@ -65,6 +69,14 @@ def evaluate() -> int:
     return 0
 
 
+@register("eval-agent")
+def eval_agent() -> int:
+    """Phase 14: ~40 scripted agent evals against the deterministic oracle.
+    Use --live (forwarded) to draft answers with the configured OpenAI model
+    instead of the scripted fake LLM."""
+    return run(["uv", "run", "python", "-m", "agent_evals.run_evals", *sys.argv[2:]])
+
+
 @register("replay")
 def replay() -> int:
     print("not yet: Phase 13 adds agent trace replay")
@@ -79,13 +91,65 @@ def serve() -> int:
 
 @register("demo")
 def demo() -> int:
-    print("not yet: Phase 16 adds the clean-clone demo")
-    return 0
+    """Phase 16 (AC-025): clean-clone demo entry point for local dev.
+
+    Two documented commands bring up the full demo from a fresh clone:
+      1) `uv run python -m tasks demo`            (this: syncs deps, serves the API)
+      2) `npm --prefix frontend install && npm --prefix frontend run dev`  (the UI)
+    """
+    code = run(["uv", "sync", "--extra", "dev"])
+    if code:
+        return code
+    return serve()
 
 
 @register("demo-check")
 def demo_check() -> int:
-    print("not yet: Phase 17 adds the headless demo-check")
+    """Phase 17 (AC-025): headless, non-interactive proof that the clean-clone
+    demo actually comes up. Starts the API in the background, polls /healthz,
+    hits GET /assumptions, builds the frontend production bundle (no dev
+    server, so this is safe and bounded in CI), then stops the API.
+    """
+    import time
+    import urllib.error
+    import urllib.request
+
+    proc = subprocess.Popen(
+        ["uv", "run", "uvicorn", "backend.api.main:app", "--host", "127.0.0.1", "--port", "8000"]
+    )
+    try:
+        deadline = time.time() + 30
+        ok = False
+        while time.time() < deadline:
+            try:
+                with urllib.request.urlopen("http://127.0.0.1:8000/healthz", timeout=2) as resp:
+                    if resp.status == 200:
+                        ok = True
+                        break
+            except (urllib.error.URLError, ConnectionError, OSError):
+                time.sleep(1)
+        if not ok:
+            print("demo-check: API never became healthy")
+            return 1
+        with urllib.request.urlopen("http://127.0.0.1:8000/assumptions", timeout=5) as resp:
+            if resp.status != 200:
+                print(f"demo-check: GET /assumptions returned {resp.status}")
+                return 1
+        print("demo-check: API is up, /healthz and /assumptions OK")
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+    code = run(["npm", "--prefix", "frontend", "ci"])
+    if code:
+        return code
+    code = run(["npm", "--prefix", "frontend", "run", "build"])
+    if code:
+        return code
+    print("demo-check: frontend production build OK")
     return 0
 
 

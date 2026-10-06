@@ -1,4 +1,8 @@
-"""Margin building blocks: COGS, trade spend, and the retailer-risk flag."""
+"""Margin building blocks: COGS, trade spend, and the retailer-risk flag.
+
+AC-013: the retailer-risk flag fires when, and only when, computed retailer
+margin % falls below the registry hurdle rate.
+"""
 
 from backend.engine.ids import QuantizedLever
 from backend.engine.margin import cogs_per_unit, retailer_risk, trade_spend

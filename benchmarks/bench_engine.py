@@ -1,4 +1,9 @@
-"""Reproducible engine latency gate for PLAN.md section 8."""
+"""Reproducible engine latency gate for PLAN.md section 8.
+
+AC-016: p95 engine compute time (excluding network/serialization) is under
+5ms at 1 scenario, 50ms at 100, 250ms at 1,000 and 2s at 10,000, each with
+K=200 sensitivity draws.
+"""
 
 from __future__ import annotations
 
@@ -31,9 +36,16 @@ def measure(sizes: list[int], repeats: int) -> list[dict[str, float | int | bool
             evaluate_batch(scenarios, draws)
             samples.append((time.perf_counter() - start) * 1000.0)
         p95 = float(np.percentile(samples, 95))
-        rows.append({"scenarios": size, "p95_ms": p95, "best_ms": min(samples),
-                     "worst_ms": max(samples), "budget_ms": BUDGET_MS[size],
-                     "pass": p95 < BUDGET_MS[size]})
+        rows.append(
+            {
+                "scenarios": size,
+                "p95_ms": p95,
+                "best_ms": min(samples),
+                "worst_ms": max(samples),
+                "budget_ms": BUDGET_MS[size],
+                "pass": p95 < BUDGET_MS[size],
+            }
+        )
     return rows
 
 
@@ -55,13 +67,17 @@ def render(rows: list[dict[str, float | int | bool]], repeats: int) -> str:
             f"| {row['scenarios']:,} | {row['p95_ms']:.2f} | {row['best_ms']:.2f} | "
             f"{row['worst_ms']:.2f} | <{row['budget_ms']:,.0f} | {'PASS' if row['pass'] else 'FAIL'} |"
         )
-    lines.extend(["", "Budgets are from PLAN.md section 8. Timing excludes HTTP and serialization.", ""])
+    lines.extend(
+        ["", "Budgets are from PLAN.md section 8. Timing excludes HTTP and serialization.", ""]
+    )
     return "\n".join(lines)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--sizes", nargs="+", type=int, choices=sorted(BUDGET_MS), default=list(BUDGET_MS))
+    parser.add_argument(
+        "--sizes", nargs="+", type=int, choices=sorted(BUDGET_MS), default=list(BUDGET_MS)
+    )
     parser.add_argument("--repeats", type=int, default=5)
     parser.add_argument("--output", type=Path, default=Path("reports/engine_bench.md"))
     args = parser.parse_args()

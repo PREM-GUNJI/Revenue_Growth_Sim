@@ -1,4 +1,10 @@
-"""Phase 5 acceptance checks for refusal integrity and nearest alternatives."""
+"""Phase 5 acceptance checks for refusal integrity and nearest alternatives.
+
+AC-010: out-of-range scenarios are REFUSED with no numeric fields.
+AC-011: 100% recall / >=95% precision on the labelled refusal set.
+AC-012: nearest_supported only ever returns a SUPPORTED scenario and never
+mutates the original request's result.
+"""
 
 from backend.assumptions.assumptions import SKU_IDS
 from backend.engine.batch import evaluate_batch
@@ -9,9 +15,7 @@ DRAWS = build_param_draws(k=0, seed=7)
 
 
 def test_out_of_range_refuses_whole_scenario_without_numeric_outputs():
-    result = evaluate_batch(
-        [Scenario(levers={SKU_IDS[0]: Lever(price_index=1.5)})], DRAWS
-    )[0]
+    result = evaluate_batch([Scenario(levers={SKU_IDS[0]: Lever(price_index=1.5)})], DRAWS)[0]
     assert result.status == "REFUSED"
     assert result.volume == result.gsv == result.nsv == result.gp == {}
     assert result.portfolio_gp is None
@@ -49,7 +53,13 @@ def test_labelled_refusal_set_has_full_out_of_range_recall_and_precision():
     from backend.engine.batch import _support_envelope
 
     decisions = [_support_envelope().check(scenario) for scenario in cases]
-    tp = sum(label == "REFUSED" and result.status == "REFUSED" for label, result in zip(labels, decisions, strict=True))
-    fp = sum(label == "SUPPORTED" and result.status == "REFUSED" for label, result in zip(labels, decisions, strict=True))
+    tp = sum(
+        label == "REFUSED" and result.status == "REFUSED"
+        for label, result in zip(labels, decisions, strict=True)
+    )
+    fp = sum(
+        label == "SUPPORTED" and result.status == "REFUSED"
+        for label, result in zip(labels, decisions, strict=True)
+    )
     assert tp / labels.count("REFUSED") == 1.0
     assert tp / (tp + fp) >= 0.95

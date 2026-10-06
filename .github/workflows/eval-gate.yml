@@ -1,0 +1,35 @@
+name: Eval gate
+
+# AC-026: a PR that regresses any threshold in eval_thresholds.yaml is
+# blocked from merging by CI. This is a dedicated, required job (separate
+# from the broader `agent-evals` reporting job in ci.yml) so branch
+# protection can require exactly this check by name.
+#
+# Mechanics: `uv run python -m tasks eval-agent` runs the Phase 14 scripted
+# agent evals and compares the measured metrics against eval_thresholds.yaml;
+# agent_evals/run_evals.py exits non-zero if any budget is missed, which
+# fails this job and blocks the PR. To demonstrate: on a `demo/regression`
+# branch, lower any value in `eval_thresholds.yaml` below the metrics
+# measured in reports/agent_evals.json and open a PR — this job fails and
+# blocks merge. See docs/HONESTY.md for why that branch is not pushed here.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  eval-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv python install 3.11
+      - run: uv sync --extra dev
+      - name: Run scripted agent evals against eval_thresholds.yaml
+        run: uv run python -m tasks eval-agent --report reports/agent_evals.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-gate-report
+          path: reports/agent_evals.json
