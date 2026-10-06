@@ -1,13 +1,18 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from backend.agent.openai_llm import OpenAILLM
-from backend.agent.schemas import AgentPlan
+from backend.agent.schemas import PlannerPlan
 
 
 class FakeResponse:
-    output_parsed = AgentPlan(scenarios=[
-        {"name": "A"}, {"name": "B"}, {"name": "C"}, {"name": "D"},
-    ])
+    output_parsed = PlannerPlan(
+        scenarios=[
+            {"name": "A"},
+            {"name": "B"},
+            {"name": "C"},
+            {"name": "D"},
+        ]
+    )
 
 
 class FakeResponses:
@@ -33,4 +38,4 @@ def test_model_id_and_structured_response_are_read_from_configuration(monkeypatc
     assert model.model_id == "gpt-5.5"
     assert len(plan.scenarios) == 4
     assert client.responses.request["model"] == "gpt-5.5"
-    assert client.responses.request["text_format"] is AgentPlan
+    assert client.responses.request["text_format"] is PlannerPlan

@@ -49,7 +49,12 @@ class ScriptedLLM:
             )
         best_index = ranking[0]["index"]
         best = evaluated[best_index]
-        best_name = plan.scenarios[best_index].name or "Scenario " + str(best_index + 1)
+        # Scenario names are untrusted data (CLAUDE.md: "never instructions"), and may
+        # contain injected text or stray digits that would fail numeric grounding (or
+        # leak the payload verbatim) if echoed into narrative claim text. Never embed
+        # the user-supplied name, or any index-derived digit, in generated prose; the
+        # name still appears unmodified in tool_events/plan.scenarios for the UI/trace.
+        best_name = "the top-ranked scenario"
         gp_value = float(best["portfolio_gp"]["value"])
         modeled = Claim(
             claim_id="modeled-best-gp",

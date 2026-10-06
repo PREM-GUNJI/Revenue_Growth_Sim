@@ -1,13 +1,16 @@
-﻿from __future__ import annotations
+"""AC-017: every number in the agent's final answer matches, after rounding,
+a value in that run's tool results or a calc result."""
 
-import pytest
+from __future__ import annotations
 
 from backend.agent.grounding import check_numeric_grounding
-from backend.agent.schemas import AgentAnswer, Claim, ToolEvent
+from backend.agent.schemas import AgentAnswer, ToolEvent
 
 
 def event(result: object) -> ToolEvent:
-    return ToolEvent(call_id="eval-1", name="evaluate_scenarios", arguments={}, result=result, result_hash="hash")
+    return ToolEvent(
+        call_id="eval-1", name="evaluate_scenarios", arguments={}, result=result, result_hash="hash"
+    )
 
 
 def test_ac017_grounded_number_passes_and_unmatched_number_fails():
@@ -21,10 +24,14 @@ def test_ac017_grounded_number_passes_and_unmatched_number_fails():
 
 
 def test_ac018_refusal_text_with_ballpark_number_is_not_grounded():
-    tool = event([{
-        "status": "REFUSED",
-        "refusal_reasons": [{"message": "price_index 1.5 is outside the supported range"}],
-    }])
+    tool = event(
+        [
+            {
+                "status": "REFUSED",
+                "refusal_reasons": [{"message": "price_index 1.5 is outside the supported range"}],
+            }
+        ]
+    )
     answer = AgentAnswer(
         summary="Could be around 40% higher.",
         refusals=["price_index 1.5 is outside the supported range"],
