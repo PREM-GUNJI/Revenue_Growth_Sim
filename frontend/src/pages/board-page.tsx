@@ -1,13 +1,15 @@
 import { AnalyticsViews } from "@/components/analytics-views"
 import { ComparisonBoard } from "@/components/comparison-board"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { GoalSeekPanel } from "@/components/goal-seek-panel"
+import { SensitivityPanel } from "@/components/sensitivity-panel"
 import { sum } from "@/lib/catalog"
 import { useWorkspace } from "@/workspace/workspace-context"
 
 const tab = "flex-none rounded-md px-4 py-2 text-sm data-active:bg-ink data-active:text-white!"
 
 export function BoardPage() {
-  const { guardrail, setGuardrail, loading, results, rawResults, heatmap, heatmapLoading, generateHeatmap, addNearestSupported } = useWorkspace()
+  const { guardrail, setGuardrail, loading, results, rawResults, heatmap, heatmapLoading, generateHeatmap, addNearestSupported, scenarios, addExternal } = useWorkspace()
   return (
               <Tabs defaultValue="board">
             <div className="flex flex-wrap items-end justify-between gap-4">
@@ -18,6 +20,8 @@ export function BoardPage() {
             <TabsContent value="board" className={`mt-5 space-y-4 transition-opacity ${loading && results.length ? "opacity-60" : ""}`}>
               {!results.length && loading && <p className="text-sm text-muted-foreground">Evaluating scenarios…</p>}
               {results.length > 0 && <ComparisonBoard scenarios={results} onUseNearest={addNearestSupported} volumeGuardrailPct={guardrail} />}
+              {results.length > 1 && <SensitivityPanel scenarios={scenarios} />}
+              <GoalSeekPanel onAdd={addExternal} />
             </TabsContent>
             <TabsContent value="analytics" className="mt-5">{results.length > 0 && <AnalyticsViews scenarios={results} bridges={Object.fromEntries(rawResults.map((item) => [item.scenario_id, item.bridge]))} heatmap={heatmap} baselineGp={rawResults[0] ? sum(rawResults[0].gp) : 0} onGenerateHeatmap={() => void generateHeatmap()} heatmapLoading={heatmapLoading} />}</TabsContent>
           </Tabs>

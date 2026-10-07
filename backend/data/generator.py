@@ -108,10 +108,12 @@ def _enforce_gap(
 ) -> np.ndarray:
     """Redraws price_index (only) wherever it violates the declared GAP-1."""
     price_index = price_index.copy()
-    violated = (price_index > _GAP_PRICE_MAX) & (depth_pct > _GAP_DEPTH_MIN)
+    # price_index is rounded to 4 dp in the output, so compare the rounded value: 1.05996 would land on the 1.06 bin edge
+    violated = (np.round(price_index, 4) >= _GAP_PRICE_MAX) & (depth_pct > _GAP_DEPTH_MIN)
     n = int(violated.sum())
     if n:
-        price_index[violated] = rng.uniform(0.88, _GAP_PRICE_MAX, size=n)
+        # stop 0.001 short of the cap: price_index is rounded to 4 dp later, and a draw rounding up to 1.06 sits on the bin edge
+        price_index[violated] = rng.uniform(0.88, _GAP_PRICE_MAX - 0.001, size=n)
     return price_index
 
 

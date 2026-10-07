@@ -210,6 +210,14 @@ class AgentTools:
         return {"tag": "SENSITIVITY", "assumption_id": assumption_id,
                 "value": value, "result": asdict(result)}
 
+    def _tool_sensitivity(self, scenarios: list[dict], seed: int = 42) -> dict:
+        from backend.analysis import sensitivity
+        return sensitivity([Scenario.model_validate(item) for item in scenarios], seed)
+
+    def _tool_goal_seek(self, max_volume_loss_pct: float = 5.0, sku_ids: list[str] | None = None, top: int = 5) -> dict:
+        from backend.analysis import goal_seek
+        return goal_seek(max_volume_loss_pct, sku_ids, top)
+
     def _tool_calc(self, expression: str, bindings: dict[str, dict[str, str]]) -> dict:
         values = {}
         for alias, source in bindings.items():

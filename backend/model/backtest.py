@@ -146,7 +146,7 @@ def write_report(out_dir: Path = Path("reports"), draws_dir: Path = Path("data")
         mech_mult_BOGO=mech["BOGO"],
         pull_forward_share=draws.pull_forward_share,
     )
-    data_manifest = json.loads(Path("data/data_manifest.json").read_text())
+    data_manifest = json.loads((Path(__file__).resolve().parents[2] / "data" / "data_manifest.json").read_text())
     draws_manifest = {
         "k": draws.k,
         "seed": draws.seed,

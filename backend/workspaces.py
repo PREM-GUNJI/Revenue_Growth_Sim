@@ -194,3 +194,18 @@ def export_workspace(workspace_id: str, user: CurrentUser) -> Response:
     filename = re.sub(r"-+", "-", "".join(c if c.isalnum() or c in "-_" else "-" for c in name)).strip("-")[:60] or "workspace"
     return Response(content=deck, media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
                     headers={"Content-Disposition": f'attachment; filename="{filename}.pptx"'})
+
+
+@router.post("/{workspace_id}/brief")
+def brief_workspace(workspace_id: str, user: CurrentUser, trace_id: str | None = None) -> Response:
+    """A one-page labelled brief (HTML, print to PDF) of the saved scenarios."""
+    with _session() as session:
+        workspace = _get(session, workspace_id)
+        state = session.get(db.WorkspaceState, workspace_id)
+        name, saved = workspace.name, list(state.scenarios or []) if state else []
+    try:
+        scenarios, results = export.evaluate(saved)
+    except export.ExportError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    activity.record(user.email, "workspace.export", workspace_id, {"format": "brief", "scenarios": len(scenarios)})
+    return Response(content=export.build_brief(name, scenarios, results, user.display_name, trace_id), media_type="text/html")

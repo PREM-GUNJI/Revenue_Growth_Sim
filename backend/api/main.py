@@ -14,6 +14,8 @@ from uuid import uuid4
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.encoders import jsonable_encoder
 
+from backend.agent.tools import ToolError
+from backend.analysis import goal_seek, sensitivity
 from backend.agent.openai_llm import OpenAILLM, OpenAILLMError
 from backend.agent.orchestrator import AgentOrchestrator
 from backend.api.schemas import (
@@ -24,10 +26,12 @@ from backend.api.schemas import (
     ConsumerEvidenceIn,
     EvaluateIn,
     ExportIn,
+    GoalSeekIn,
     ImportIn,
     ResearchIn,
     ResearchToScenariosIn,
     ScenarioIn,
+    SensitivityIn,
     SweepIn,
 )
 from backend.assumptions.assumptions import ASSUMPTIONS, OWN_ELASTICITY_BY_FORMAT, SKUS
@@ -286,6 +290,19 @@ async def sweep(request: SweepIn) -> list[dict]:
         scenarios.append(source)
     draws = build_param_draws(k=request.k, seed=request.seed)
     return jsonable_encoder([asdict(x) for x in evaluate_batch(scenarios, draws)])
+
+
+@app.post("/scenarios/sensitivity")
+async def scenario_sensitivity(request: SensitivityIn) -> dict:
+    return jsonable_encoder(sensitivity(request.scenarios, request.seed))
+
+
+@app.post("/scenarios/goal-seek")
+async def scenario_goal_seek(request: GoalSeekIn) -> dict:
+    try:
+        return jsonable_encoder(goal_seek(request.max_volume_loss_pct, request.sku_ids, request.top))
+    except ToolError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _export_payload(scenario: Scenario, k: int, seed: int) -> dict:

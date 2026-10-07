@@ -29,6 +29,7 @@ export function toUiResults(raw: ApiScenarioResult[], inputs: ApiScenario[]): Sc
       return {
         ...common,
         refusalReason: result.refusal_reasons.map((reason) => reason.message).join("; "),
+        refusals: result.refusal_reasons.map((r) => ({ skuId: r.sku_id, lever: r.lever, requested: r.requested, range: r.supported_range, message: r.message })),
         nearestSupportedId: result.nearest_supported_scenario ? "nearest-" + result.scenario_id : undefined,
       }
     }

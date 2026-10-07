@@ -52,3 +52,15 @@ export async function exportWorkspace(workspaceId: string): Promise<{ blob: Blob
   const match = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") ?? "")
   return { blob: await response.blob(), filename: match?.[1] ?? "workspace.pptx" }
 }
+
+/** Open the one-page labelled brief for a workspace in a new tab (print to PDF from there). */
+export async function openWorkspaceBrief(workspaceId: string, traceId?: string): Promise<void> {
+  const query = traceId ? "?trace_id=" + encodeURIComponent(traceId) : ""
+  const response = await fetch("/api/workspaces/" + encodeURIComponent(workspaceId) + "/brief" + query, { method: "POST" })
+  if (response.status === 401) {
+    window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
+    throw new AuthError()
+  }
+  if (!response.ok) throw new Error("Brief failed")
+  window.open(URL.createObjectURL(new Blob([await response.text()], { type: "text/html" })), "_blank")
+}

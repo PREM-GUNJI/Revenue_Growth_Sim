@@ -65,8 +65,8 @@ def test_four_pack_formats_only(df):
     assert df["format"].nunique() == 4
 
 
-def test_twelve_skus(df):
-    assert df["sku_id"].nunique() == 12
+def test_all_catalog_skus(df):
+    assert df["sku_id"].nunique() == 20  # 5 brands x 4 formats
 
 
 def test_units_sold_non_negative(df):
@@ -74,5 +74,5 @@ def test_units_sold_non_negative(df):
 
 
 def test_row_count_matches_dimensions(df):
-    # 12 SKUs x 3 regions x 104 weeks x 8 stores
-    assert len(df) == 12 * 3 * 104 * 8
+    # 20 SKUs x 3 regions x 104 weeks x 8 stores
+    assert len(df) == 20 * 3 * 104 * 8

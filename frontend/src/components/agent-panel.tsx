@@ -1,6 +1,8 @@
 import { useState } from "react"
 import { ProvenanceChain } from "@/components/evidence-parts"
-import { runAgent, type AgentApiRun, type AgentClaim, type ApiScenario, type Provenance, type ResearchScenarioRow } from "@/lib/api"
+import { RefusalDetail } from "@/components/refusal-detail"
+import { SensitivityTable } from "@/components/sensitivity-panel"
+import { runAgent, type AgentApiRun, type AgentClaim, type ApiScenario, type ApiScenarioResult, type SensitivityResult, type Provenance, type ResearchScenarioRow } from "@/lib/api"
 
 const GOALS = [
   "Improve margin without losing more than 5% volume.",
@@ -30,6 +32,13 @@ export function AgentPanel({ onAcceptScenario, workspaceId }: { onAcceptScenario
 
   const evaluations = run?.tool_events.find((event) => event.name === "evaluate_scenarios")?.result
   const rows = Array.isArray(evaluations) ? evaluations : []
+  const sensitivity = run?.tool_events.find((event) => event.name === "sensitivity")?.result as SensitivityResult | undefined
+  const totalVolume = (item: ApiScenarioResult) => Object.values(item.volume).reduce((acc, band) => acc + band.value, 0)
+  const baseIndex = (run?.scenarios ?? []).findIndex((item) => !Object.keys(item.levers).length && !Object.values(item.cost_shock).some(Boolean))
+  const baseRow = (rows[baseIndex] ?? undefined) as ApiScenarioResult | undefined
+  const baseGp = baseRow?.portfolio_gp?.value, baseVol = baseRow ? totalVolume(baseRow) : undefined
+  const rank = new Map<number, number>((rows as ApiScenarioResult[]).map((item, index) => [index, item] as const).filter(([, item]) => item.status !== "REFUSED" && item.portfolio_gp)
+    .sort((a, b) => b[1].portfolio_gp!.value - a[1].portfolio_gp!.value).map(([index], position) => [index, position + 1]))
   const evidenceEvents = run?.tool_events.filter((event) => RESEARCH_TOOLS.includes(event.name)) ?? []
   const mapped = (run?.tool_events.find((event) => event.name === "research_to_scenarios")?.result ?? []) as ResearchScenarioRow[]
   const sourceFor = (scenario: ApiScenario): Provenance | undefined => mapped.find((row) => row.scenario?.name === scenario.name)?.provenance
@@ -70,20 +79,44 @@ export function AgentPanel({ onAcceptScenario, workspaceId }: { onAcceptScenario
         })}
         {mapped.slice(0, 1).map((row) => <details key={row.scenario_id} className="text-sm"><summary className="cursor-pointer text-muted-foreground">Provenance of the first candidate</summary><div className="mt-2"><ProvenanceChain source={row.provenance} scenarioId={row.scenario_id} resultHash={row.result_hash} /></div></details>)}
       </section>}
-      <section className="space-y-2">
-        <h3 className="font-display text-lg font-semibold">Proposed comparison board</h3>
-        {run.scenarios.map((scenario, index) => {
-          const result = rows[index] as { status?: string; portfolio_gp?: { value: number } | null } | undefined
-          const source = sourceFor(scenario)
-          return <div key={index} className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-card p-3 text-sm">
-            <div><span className="font-medium">{scenario.name || "Scenario " + (index + 1)}</span>
-              <span className={`ml-2 ${result?.status === "REFUSED" ? "font-medium text-loss" : "text-muted-foreground"}`}>{result?.status ?? "pending evaluation"}</span>
-              {result?.status !== "REFUSED" && result?.portfolio_gp && <span className="ml-2 num">gross profit {result.portfolio_gp.value.toLocaleString()}</span>}
-              {source && <span className="ml-2 rounded bg-edge/10 px-1.5 py-0.5 text-xs text-edge">research candidate</span>}</div>
-            <button type="button" onClick={() => onAcceptScenario(source ? { ...scenario, source } : scenario)} className="rounded-md border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary">Add to simulator</button>
+      <section className="space-y-3">
+        <h3 className="font-display text-lg font-semibold">Proposed comparison</h3>
+        <div className="overflow-x-auto rounded-lg border bg-card"><table className="w-full text-left text-sm">
+          <thead className="bg-secondary text-xs text-muted-foreground"><tr><th className="p-2">Rank</th><th className="p-2">Scenario</th><th className="p-2 text-right">Gross profit</th><th className="p-2 text-right">vs baseline</th><th className="p-2 text-right">Volume</th><th className="p-2">Why</th><th className="p-2" /></tr></thead>
+          <tbody>{run.scenarios.map((scenario, index) => {
+            const result = rows[index] as ApiScenarioResult | undefined
+            const refused = result?.status === "REFUSED"
+            const gp = result?.portfolio_gp?.value, vol = result ? totalVolume(result) : undefined
+            const gpDelta = gp !== undefined && baseGp ? gp - baseGp : undefined, volDelta = vol !== undefined && baseVol ? (vol / baseVol - 1) * 100 : undefined
+            const source = sourceFor(scenario), position = rank.get(index)
+            const reason = refused ? "Refused: outside supported data, no numbers produced" : index === baseIndex ? "Baseline" : gpDelta !== undefined && gpDelta < 0 ? "Loses: gross profit below baseline" : gpDelta !== undefined && gpDelta >= 0 && volDelta !== undefined && volDelta < -5 ? "Gains profit but loses over 5% volume" : "Beats baseline"
+            return <tr key={index} className={`border-t align-top ${refused ? "hatch" : ""}`}>
+              <td className="num p-2">{position ?? "–"}</td>
+              <td className="p-2"><span className="font-medium">{scenario.name || "Scenario " + (index + 1)}</span>{source && <span className="ml-2 rounded bg-edge/10 px-1.5 py-0.5 text-xs text-edge">research candidate</span>}
+                {refused && result && <RefusalDetail reasons={result.refusal_reasons.map((r) => ({ skuId: r.sku_id, lever: r.lever, requested: r.requested, range: r.supported_range, message: r.message }))} />}</td>
+              <td className="num p-2 text-right">{gp !== undefined ? gp.toLocaleString() : "–"}</td>
+              <td className={`num p-2 text-right ${gpDelta !== undefined && gpDelta < 0 ? "text-loss" : gpDelta ? "text-gain" : ""}`}>{gpDelta !== undefined ? (gpDelta >= 0 ? "+" : "") + gpDelta.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "–"}</td>
+              <td className="num p-2 text-right">{volDelta !== undefined ? (volDelta >= 0 ? "+" : "") + volDelta.toFixed(1) + "%" : "–"}</td>
+              <td className={`p-2 text-xs ${refused || (gpDelta !== undefined && gpDelta < 0) ? "text-loss" : "text-muted-foreground"}`}>{reason}</td>
+              <td className="p-2">{!refused && <button type="button" onClick={() => onAcceptScenario(source ? { ...scenario, source } : scenario)} className="rounded-md border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary">Add to simulator</button>}</td>
+            </tr>
+          })}</tbody>
+        </table></div>
+        {run.alternatives?.map((alt) => {
+          const nearest = run.tool_events.find((event) => event.call_id === alt.tool_call_id)
+          const scenario = (nearest?.arguments.scenarios as ApiScenario[] | undefined)?.[alt.result_index]
+          const gp = alt.result.portfolio_gp?.value
+          return <div key={alt.refused_index} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/40 bg-primary/5 p-3 text-sm">
+            <div><strong>Nearest supported alternative to “{run.scenarios[alt.refused_index]?.name || "refused scenario"}”</strong>
+              <span className="ml-2 text-muted-foreground">re-run through the engine{gp !== undefined ? ", gross profit " + gp.toLocaleString() : ""}{gp !== undefined && baseGp ? " (" + (gp - baseGp >= 0 ? "+" : "") + (gp - baseGp).toLocaleString(undefined, { maximumFractionDigits: 0 }) + " vs baseline)" : ""}</span></div>
+            {scenario && <button type="button" onClick={() => onAcceptScenario({ ...scenario, name: "Nearest supported: " + (run.scenarios[alt.refused_index]?.name ?? "") })} className="rounded-md border border-primary/40 px-2.5 py-1.5 text-xs font-medium text-primary hover:bg-primary hover:text-primary-foreground">Add to simulator</button>}
           </div>
         })}
       </section>
+      {sensitivity && <section className="space-y-2 rounded-lg border bg-card p-5">
+        <h3 className="font-display text-lg font-semibold">What would change this answer?</h3>
+        <SensitivityTable data={sensitivity} names={run.scenarios.map((item) => item.name)} />
+      </section>}
       <details className="rounded-md border bg-card p-3">
         <summary className="cursor-pointer text-sm font-medium">Replay trace events</summary>
         <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(run.tool_events, null, 2)}</pre>

@@ -51,7 +51,7 @@ def _baseline() -> Baselines:
 
 @lru_cache(maxsize=1)
 def _data_hash() -> str:
-    manifest = json.loads(Path("data/data_manifest.json").read_text())
+    manifest = json.loads((Path(__file__).resolve().parents[2] / "data" / "data_manifest.json").read_text())
     return manifest["data_sha256"]
 
 

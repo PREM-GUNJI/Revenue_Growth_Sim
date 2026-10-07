@@ -34,8 +34,8 @@ class Assumption:
 
 
 # --- Portfolio catalog -------------------------------------------------
-# 3 fictional brands x 4 pack formats = 12 SKUs (PLAN.md section 3).
-BRANDS = ["Aurora", "Boreal", "Comet"]
+# 5 fictional brands x 4 pack formats = 20 SKUs (PLAN.md section 3 started with 3 brands / 12 SKUs).
+BRANDS = ["Aurora", "Boreal", "Comet", "Delta", "Ember"]
 FORMATS = ["can_330ml", "pet_500ml", "bottle_1500ml", "multipack_6x330ml"]
 PACK_SIZE_L = {
     "can_330ml": 0.33,
@@ -60,7 +60,7 @@ SKUS: list[dict] = [
     for f in FORMATS
 ]
 SKU_IDS = [s["sku_id"] for s in SKUS]
-N_SKUS = len(SKU_IDS)  # 12
+N_SKUS = len(SKU_IDS)  # 20
 
 # --- Own-price elasticity by format (larger packs less elastic) --------
 OWN_ELASTICITY_BY_FORMAT: dict[str, Assumption] = {
@@ -404,7 +404,7 @@ CONJOINT_HETEROGENEITY_WEIGHT = Assumption(
 CONJOINT_SUPPLIED_PART_WORTHS = Assumption(
     id="A-037", label="Supplied synthetic conjoint part-worths",
     value={
-        "brand": {"Aurora": 0.35, "Boreal": 0.0, "Comet": -0.25},
+        "brand": {"Aurora": 0.35, "Boreal": 0.0, "Comet": -0.25, "Delta": 0.15, "Ember": -0.4},
         "pack": {"can_330ml": 0.0, "pet_500ml": 0.2, "bottle_1500ml": 0.1, "multipack_6x330ml": 0.15},
         "pack_match_bonus": 0.5,
         "price_slope": -6.0,
@@ -512,7 +512,7 @@ GENERATOR_SEED = {
         "multipack_6x330ml": 3.20,
     },
     # Brand price tier: premium / mainstream / value.
-    "brand_price_multiplier": {"Aurora": 1.05, "Boreal": 1.00, "Comet": 0.92},
+    "brand_price_multiplier": {"Aurora": 1.05, "Boreal": 1.00, "Comet": 0.92, "Delta": 1.10, "Ember": 0.85},
     "seasonality_amplitude": 0.05,  # log-scale sinusoidal amplitude, 52-week period
     "region_week_noise_sigma": 0.03,  # common shock per (sku, region, week)
     "store_noise_sigma": 0.08,  # idiosyncratic per (sku, region, store, week)

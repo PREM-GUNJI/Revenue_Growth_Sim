@@ -6,7 +6,10 @@ simple ratios of engine totals against the first scenario (the baseline), the sa
 
 from __future__ import annotations
 
+import hashlib
+import html
 import io
+import json
 from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Any
@@ -17,8 +20,10 @@ from pptx.dml.color import RGBColor
 from pptx.enum.chart import XL_CHART_TYPE
 from pptx.util import Emu, Inches, Pt
 
+from backend.assumptions.assumptions import ASSUMPTIONS
 from backend.engine.batch import ENGINE_VERSION, _data_hash, evaluate_batch
 from backend.engine.scenario import Scenario
+from backend.model.backtest import spec_hash
 from backend.model.spec import build_param_draws
 
 INK = RGBColor(0x0A, 0x10, 0x34)
@@ -152,3 +157,40 @@ def build_deck(workspace_name: str, scenarios: list[Scenario], results: list[dic
     buffer = io.BytesIO()
     deck.save(buffer)
     return buffer.getvalue()
+
+
+def assumptions_hash() -> str:
+    """Fingerprint of every registry value, so a saved set records which assumptions produced it."""
+    body = json.dumps({a.id: a.value for a in ASSUMPTIONS.values()}, sort_keys=True, default=str)
+    return hashlib.sha256(body.encode()).hexdigest()
+
+
+def build_brief(workspace_name: str, scenarios: list[Scenario], results: list[dict[str, Any]],
+                author: str, trace_id: str | None = None) -> str:
+    """One-page, print-to-PDF brief. Claims are labelled Observed / Modeled / Assumed / Recommended;
+    the recommendation names the Modeled row it rests on, and refused scenarios carry no numbers."""
+    e = html.escape
+    rows = summary_rows(scenarios, results)
+    ranked = sorted((r for r in rows if r["gp_pct"] is not None and not r["baseline"]), key=lambda r: -r["gp_pct"])
+    best = ranked[0] if ranked and ranked[0]["gp_pct"] > 0.05 else None
+    body = []
+    for r in rows:
+        if r["status"] == "REFUSED":
+            cells = f'<td colspan="3" class="bad">REFUSED: {e("; ".join(r["reasons"]))}</td>'
+            label = "Refused"
+        else:
+            cells = "".join(f"<td>{_signed(r[k])}</td>" for k in ("volume_pct", "revenue_pct", "gp_pct"))
+            label = "Observed baseline (synthetic)" if r["baseline"] else "Modeled"
+        body.append(f'<tr><td>{e(r["name"] or "Scenario")}</td><td>{label}</td>{cells}<td class="id">{e(r["result_hash"][:10])}</td></tr>')
+    rec = (f'<p><b>Recommended</b>, resting on the Modeled row above: <i>{e(best["name"] or "top scenario")}</i> '
+           f'has the best modeled gross-profit change ({_signed(best["gp_pct"])}).</p>') if best else           "<p><b>Recommended</b>: no supported scenario beats the baseline on modeled gross profit.</p>"
+    return f"""<!doctype html><html lang="en"><meta charset="utf-8"><title>{e(workspace_name)} brief</title>
+<style>body{{font:14px/1.45 system-ui,sans-serif;max-width:900px;margin:2rem auto;color:#0a1034}}h1{{margin:0}}
+table{{border-collapse:collapse;width:100%;margin:1rem 0}}td,th{{border-bottom:1px solid #ddd;padding:6px;text-align:left}}
+.bad{{color:#dc2626}}.id,.meta{{color:#525252;font-size:12px}}@media print{{body{{margin:0}}}}</style>
+<h1>{e(workspace_name)}</h1><p class="meta">{e(author)}, {datetime.now(UTC):%Y-%m-%d}. {e(SYNTHETIC)}</p>
+<table><tr><th>Scenario</th><th>Label</th><th>Volume</th><th>Revenue</th><th>Gross profit</th><th>Result hash</th></tr>{"".join(body)}</table>
+{rec}
+<p><b>Assumed</b>: {len(ASSUMPTIONS)} documented registry assumptions; percentages are against the first scenario.</p>
+<p class="meta">Reproduce: engine {e(ENGINE_VERSION)}, data {_data_hash()[:12]}, model spec {spec_hash()[:12]}, assumptions {assumptions_hash()[:12]},
+k={K}, seed={SEED}{", agent trace " + e(trace_id) if trace_id else ""}.</p></html>"""

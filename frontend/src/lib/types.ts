@@ -7,6 +7,7 @@ export interface ScenarioDelta {
   marginPct: number
   marginPpt: number
 }
+export interface RefusalReason { skuId: string; lever: string; requested: number | string; range: Array<number | string>; message: string }
 export interface ScenarioResult {
   scenarioId: string
   resultHash?: string
@@ -20,6 +21,7 @@ export interface ScenarioResult {
   p90?: ScenarioDelta
   assumptionIds?: string[]
   refusalReason?: string
+  refusals?: RefusalReason[]
   nearestSupportedId?: string
 }
 export interface Assumption {

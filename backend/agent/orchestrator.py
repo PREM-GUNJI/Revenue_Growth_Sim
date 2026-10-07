@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,15 @@ def _research_claims(research: dict, ranking: list[dict], evaluation_call_id: st
               label="Modeled", tool_call_id=evaluation_call_id,
               field_path=f"{scenario_index}.portfolio_gp.value"),
     ]
+
+
+_VOLUME_CAP = re.compile(r"(?:los\w*|drop\w*|fall\w*|decline\w*)[^.%]{0,40}?(\d+(?:\.\d+)?)\s*%[^.]{0,15}volume|volume[^.%]{0,40}?(\d+(?:\.\d+)?)\s*%", re.I)
+
+
+def _volume_cap(goal: str) -> float | None:
+    """A stated volume-loss limit in the goal ("without losing more than 5% volume") turns the run into a goal-seek."""
+    match = _VOLUME_CAP.search(goal)
+    return None if match is None else float(match.group(1) or match.group(2))
 
 
 class ScriptedLLM:
@@ -176,6 +186,12 @@ class AgentOrchestrator:
         research_context = None
         if plan.research is not None:
             research_context = self._gather_research(plan.research, invoke, scenarios)
+        cap = _volume_cap(goal)
+        if cap is not None and plan.research is None:
+            _gs_id, found = invoke("goal_seek", {"max_volume_loss_pct": cap, "top": 3})
+            room = 14 - len(scenarios)  # keep room for the baseline and the stress scenario
+            for number, item in enumerate(found["top"][:max(room, 0)], 1):
+                scenarios.append(Scenario.model_validate({**item["scenario"], "name": f"Goal-seek option {number}"}))
         has_baseline = any(
             not item.levers and not any(item.cost_shock.model_dump().values())
             for item in scenarios
@@ -201,13 +217,25 @@ class AgentOrchestrator:
             "rank_scenarios", {"results": evaluated, "metric": "portfolio_gp"}
         )
         invoke("pareto_flags", {"results": evaluated})
-        for result, scenario in zip(evaluated, plan.scenarios, strict=True):
+        invoke("sensitivity", {"scenarios": [scenario.model_dump(mode="json") for scenario in plan.scenarios]})
+        nearest_by_index: dict[int, dict] = {}
+        for index, (result, scenario) in enumerate(zip(evaluated, plan.scenarios, strict=True)):
             if result.get("status") == "REFUSED":
-                invoke("nearest_supported", {"scenario": scenario.model_dump(mode="json")})
+                _nid, nearest = invoke("nearest_supported", {"scenario": scenario.model_dump(mode="json")})
+                nearest_by_index[index] = nearest
             else:
                 invoke("explain_scenario", {
                     "scenario": scenario.model_dump(mode="json"), "k": 0, "seed": 42,
                 })
+
+        alternatives: list[dict] = []
+        if nearest_by_index:
+            order = list(nearest_by_index)
+            alt_call_id, alt_results = invoke("evaluate_scenarios", {
+                "scenarios": [nearest_by_index[i]["scenario"] for i in order], "k": 200, "seed": 42})
+            alternatives = [{"refused_index": i, "tool_call_id": alt_call_id, "result_index": n,
+                             "distance": nearest_by_index[i]["distance"], "result": alt_results[n]}
+                            for n, i in enumerate(order)]
 
         if research_context is not None:
             gp = {i: evaluated[i]["portfolio_gp"]["value"] for i in research_context["scenario_indices"]
@@ -244,6 +272,7 @@ class AgentOrchestrator:
             answer=answer, audit=verdict, tool_events=events,
             model_id=llm.model_id, prompt_version_hash=PROMPT_VERSION_HASH,
             temperature=llm.temperature, scenarios=plan.scenarios,
+            alternatives=alternatives,
             wall_time_ms=(time.perf_counter() - wall_started) * 1000,
             model_time_ms=model_time_ms, tool_time_ms=tool_time_ms,
         )

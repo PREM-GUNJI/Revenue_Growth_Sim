@@ -137,6 +137,8 @@ class AgentRun(BaseModel):
     prompt_version_hash: str
     temperature: Literal[0] = 0
     scenarios: list[Scenario] = Field(default_factory=list)
+    # Refused scenarios -> engine-evaluated nearest supported scenario (numbers come from the tool, never the model).
+    alternatives: list[dict] = Field(default_factory=list)
     wall_time_ms: float = 0.0
     model_time_ms: float = 0.0
     tool_time_ms: float = 0.0

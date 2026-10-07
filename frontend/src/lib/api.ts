@@ -21,7 +21,7 @@ export interface ApiScenarioResult {
   portfolio_gp: ApiBand | null
   bridge: Record<string, ApiBridge>
   result_hash: string
-  refusal_reasons: Array<{ sku_id: string; lever: string; message: string }>
+  refusal_reasons: Array<{ sku_id: string; lever: string; requested: number | string; supported_range: Array<number | string>; message: string }>
   nearest_supported_scenario: ApiScenario | null
 }
 export interface ApiLever { price_index: number; promo_depth_pct: number; mechanic: string; promo_weeks_per_month: number }
@@ -164,6 +164,7 @@ export interface AgentApiRun {
   model_time_ms: number
   tool_time_ms: number
   scenarios: ApiScenario[]
+  alternatives: Array<{ refused_index: number; tool_call_id: string; result_index: number; distance: number; result: ApiScenarioResult }>
   answer: {
     summary: string
     recommendations: string[]
@@ -188,3 +189,14 @@ export function researchToScenarios(methodology: string, pack: string, promotion
 export function conjointToScenarios(alternatives: ConjointAlternative[], focus_brand: string, seed = 42) {
   return post<ResearchBridgeResponse>("/pricing/conjoint-to-scenarios", { alternatives, focus_brand, seed })
 }
+
+export interface SensitivityRow {
+  assumption_id: string; label: string; base_value: number; swing: number | null; flips_winner: boolean
+  low: { value: number; winner: number | null; winner_gp: number | null }
+  high: { value: number; winner: number | null; winner_gp: number | null }
+}
+export interface SensitivityResult { base_winner: number | null; base_ranking: number[]; base_gp: Array<number | null>; assumptions: SensitivityRow[] }
+export function getSensitivity(scenarios: ApiScenario[], seed = 42) { return post<SensitivityResult>("/scenarios/sensitivity", { scenarios: forEngine(scenarios), seed }) }
+export interface GoalSeekResult { max_volume_loss_pct: number; baseline_gp: number; evaluated: number; feasible: number
+  top: Array<{ scenario: ApiScenario; scenario_id: string; portfolio_gp: number; gp_change: number; volume_loss_pct: number }> }
+export function goalSeek(max_volume_loss_pct: number, top = 5) { return post<GoalSeekResult>("/scenarios/goal-seek", { max_volume_loss_pct, top }) }

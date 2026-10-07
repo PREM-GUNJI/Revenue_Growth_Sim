@@ -2,7 +2,7 @@ import { useState } from "react"
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom"
 import { AppFooter } from "@/components/app-footer"
 import { AssumptionsDrawer } from "@/components/assumptions-drawer"
-import { exportWorkspace } from "@/lib/governance"
+import { exportWorkspace, openWorkspaceBrief } from "@/lib/governance"
 import { ScenarioBuilder } from "./scenario-builder"
 import { useWorkspace } from "./workspace-context"
 import type { SaveState } from "./workspace-context"
@@ -47,6 +47,7 @@ function ExportButton({ workspaceId, disabled }: { workspaceId: string; disabled
   }
   return <span className="flex items-center gap-2">
     <button type="button" onClick={() => void download()} disabled={disabled || state.busy} className="rounded-md border bg-card px-3 py-1.5 text-sm font-medium hover:bg-secondary disabled:opacity-50">{state.busy ? "Preparing…" : "Export deck"}</button>
+    <button type="button" onClick={() => void openWorkspaceBrief(workspaceId).catch((cause) => setState({ busy: false, error: cause instanceof Error ? cause.message : "Brief failed" }))} disabled={disabled} className="rounded-md border bg-card px-3 py-1.5 text-sm font-medium hover:bg-secondary disabled:opacity-50">Brief</button>
     {state.error && <span role="alert" className="max-w-56 truncate text-xs text-loss" title={state.error}>{state.error}</span>}</span>
 }
 

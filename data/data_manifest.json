@@ -1,5 +1,5 @@
 {
-  "data_sha256": "441e456e78cc6ec2deec697e4c78e419bcb1693cd9ef0f0413845b527adcbee2",
+  "data_sha256": "b91f7b53b6c5b3d6bdce626ff5502697388766ad84bfb2fe4375b06f8f25567f",
   "declared_gaps": [
     "price_index > 1.06 and promo_depth_pct > 20 (for the same sku, region, week)"
   ],
@@ -9,7 +9,7 @@
     "South",
     "West"
   ],
-  "row_count": 29952,
+  "row_count": 49920,
   "seed": 42,
   "skus": [
     "Aurora-can_330ml",
@@ -23,7 +23,15 @@
     "Comet-can_330ml",
     "Comet-pet_500ml",
     "Comet-bottle_1500ml",
-    "Comet-multipack_6x330ml"
+    "Comet-multipack_6x330ml",
+    "Delta-can_330ml",
+    "Delta-pet_500ml",
+    "Delta-bottle_1500ml",
+    "Delta-multipack_6x330ml",
+    "Ember-can_330ml",
+    "Ember-pet_500ml",
+    "Ember-bottle_1500ml",
+    "Ember-multipack_6x330ml"
   ],
   "stores_per_region": 8,
   "weeks": 104

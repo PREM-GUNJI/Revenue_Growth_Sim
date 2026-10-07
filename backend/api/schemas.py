@@ -77,3 +77,14 @@ class ResearchToScenariosIn(ResearchIn):
 
 class ConjointToScenariosIn(ConjointIn):
     pass
+
+
+class SensitivityIn(BaseModel):
+    scenarios: list[Scenario] = Field(min_length=1, max_length=50)
+    seed: int = Field(default=42, ge=0)
+
+
+class GoalSeekIn(BaseModel):
+    max_volume_loss_pct: float = Field(default=5.0, ge=0, le=100)
+    sku_ids: list[str] | None = None
+    top: int = Field(default=5, ge=1, le=20)
