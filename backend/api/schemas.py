@@ -15,6 +15,7 @@ class AssumptionOut(BaseModel):
     source: str
     rationale: str
     valid_range: tuple[float, float] | None = None
+    reference: str | None = None
 
 
 class EvaluateIn(BaseModel):

@@ -1,8 +1,9 @@
-"""Browser smoke for the comparison board's refusal and loser states (AC-024)."""
+"""Browser smoke: the Situation baseline, the comparison board's refusal and loser states (AC-024), audit and export."""
 
 from __future__ import annotations
 
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -113,29 +114,38 @@ def test_ac024_loser_and_refusal_render_with_nearest_action(ui_url: str) -> None
         page.get_by_label("Email address").fill(TEST_EMAIL)
         page.get_by_label("Password", exact=True).fill(TEST_PASSWORD)
         page.get_by_role("button", name="Sign In").click()
-        page.get_by_label("Name", exact=True).fill("E2E workspace")  # a fresh database lands on the empty homepage
-        page.get_by_role("button", name="Create workspace").click()
-        page.get_by_role("link", name="Comparison board").wait_for(timeout=30_000)
-        page.get_by_role("link", name="Comparison board").click()  # Overview is the landing view
+        page.get_by_label("Name", exact=True).fill("E2E case")  # a fresh database lands on the empty homepage
+        page.get_by_label("Business question", exact=False).fill("Which pack should take price?")
+        page.get_by_role("button", name="Create case").click()
+        # Step 1 is the Situation: a baseline P&L in rupees, not a bare percentage.
+        page.get_by_role("heading", name="Where Aurora stands today").wait_for(timeout=30_000)
+        page.get_by_text("Which pack should take price?").first.wait_for()
+        page.get_by_role("heading", name="Weekly profit and loss by pack").wait_for()
+        page.get_by_role("cell", name="Aurora total").wait_for(timeout=30_000)
+        assert page.get_by_text("₹").count() > 10
+        compare = page.get_by_role("link", name=re.compile("Compare")).first
+        compare.click()
         page.wait_for_url("**/board")
         page.get_by_text("worse than baseline", exact=False).first.wait_for(timeout=30_000)
+        page.get_by_role("columnheader", name=re.compile("Gross profit")).first.wait_for()  # the absolute table
+        assert page.get_by_text("Rests on", exact=False).count() >= 1  # each result names the assumptions it depends on
         assert page.get_by_text("REFUSED", exact=False).count() >= 1
         nearest = page.get_by_role("button", name="Use nearest supported scenario")
         assert nearest.count() == 1
         with page.expect_response(lambda r: r.request.method == "PUT" and r.url.endswith("/scenarios"), timeout=30_000) as saved:
             nearest.click()  # the edit autosaves to the workspace one second later
         assert saved.value.status == 200
-        page.get_by_text("Nearest supported to Out-of-range price").wait_for(timeout=30_000)
+        page.get_by_text("Nearest supported to Out-of-range can price").first.wait_for(timeout=30_000)
         page.get_by_role("tab", name="Analytics").click()
         page.get_by_text("Trade-off plane").wait_for()
-        page.get_by_text("Margin waterfall").wait_for()
+        page.get_by_text("Why gross profit moved").wait_for()
         page.get_by_text("Price × promotion sweep").wait_for()
         page.get_by_role("button", name="Generate heatmap").click()
         page.get_by_role("button", name="Refresh heatmap").wait_for(timeout=30_000)
-        # The workspace autosaves: a reload on the deep link comes back with the scenario we added.
+        # The case autosaves: a reload on the deep link comes back with the scenario we added.
         page.reload(wait_until="networkidle")
         page.get_by_role("tab", name="Comparison board").click()
-        page.get_by_text("Nearest supported to Out-of-range price").first.wait_for(timeout=30_000)
+        page.get_by_text("Nearest supported to Out-of-range can price").first.wait_for(timeout=30_000)
         browser.close()
 
 
@@ -144,7 +154,7 @@ def sign_in(page: Page, ui_url: str) -> None:
     page.get_by_label("Email address").fill(TEST_EMAIL)
     page.get_by_label("Password", exact=True).fill(TEST_PASSWORD)
     page.get_by_role("button", name="Sign In").click()
-    page.get_by_role("heading", name="Workspaces").wait_for(timeout=30_000)
+    page.get_by_role("heading", name="Cases").wait_for(timeout=30_000)
 
 
 def test_hub_audit_export_and_sign_out(ui_url: str) -> None:
@@ -153,8 +163,8 @@ def test_hub_audit_export_and_sign_out(ui_url: str) -> None:
         page = browser.new_page()
         sign_in(page, ui_url)
 
-        # The homepage lists the workspace but carries no audit rows, cost figures or status tiles.
-        page.get_by_role("heading", name="E2E workspace").wait_for()
+        # The homepage lists the case but carries no audit rows, cost figures or status tiles.
+        page.get_by_role("heading", name="E2E case").wait_for()
         assert page.locator("table").count() == 0 and page.get_by_text("rate not set").count() == 0
 
         # Audit page: the sign-in above is on the log, and AI usage starts empty rather than showing $0.
@@ -165,7 +175,7 @@ def test_hub_audit_export_and_sign_out(ui_url: str) -> None:
         page.get_by_role("link", name="Agent runs").click()
         page.get_by_text("No agent runs yet").wait_for()
 
-        # Export the workspace as a deck.
+        # Export the case as a deck.
         page.get_by_role("link", name="C5i home").click()
         page.get_by_role("link", name="Open").first.click()
         page.get_by_text("All changes saved").wait_for()

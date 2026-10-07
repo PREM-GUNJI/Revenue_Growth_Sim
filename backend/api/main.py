@@ -8,10 +8,11 @@ listing every id isn't a computation that should count toward coverage
 
 from __future__ import annotations
 
+import time
 from dataclasses import asdict
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.encoders import jsonable_encoder
 
 from backend.agent.openai_llm import OpenAILLM, OpenAILLMError
@@ -37,6 +38,7 @@ from backend.auth import CurrentUser, require_user
 from backend.auth import router as auth_router
 from backend.db import database_status, list_runs, save_run
 from backend.engine.batch import ENGINE_VERSION, _data_hash, _support_envelope, evaluate_batch
+from backend.engine.explain import assumption_ids_for, focal_bridge
 from backend.engine.ids import expand_scenario, scenario_id
 from backend.engine.scenario import Lever, Scenario
 from backend.engine.support import nearest_supported
@@ -53,11 +55,13 @@ from backend.research.evidence import (
     run_research,
     summarize_consumers,
 )
+from backend.situation import router as situation_router
 from backend.workspaces import router as workspaces_router
 
 app = FastAPI(title="Revenue Growth Scenario Simulator", dependencies=[Depends(require_user)])
 app.include_router(auth_router)
 app.include_router(workspaces_router)
+app.include_router(situation_router)
 app.include_router(hub_router)
 app.include_router(audit_router)
 API_EXPORT_VERSION = 1
@@ -132,6 +136,7 @@ async def list_assumptions() -> list[AssumptionOut]:
             source=a.source,
             rationale=a.rationale,
             valid_range=a.valid_range,
+            reference=a.reference,
         )
         for a in sorted(ASSUMPTIONS.values(), key=lambda a: a.id)
     ]
@@ -249,10 +254,19 @@ async def envelope_info() -> dict:
             "comfortable_local_rows": ASSUMPTIONS["A-023"].value}
 
 
+def _result_view(result, scenario: Scenario) -> dict:
+    """An engine result plus the explanations a reader needs beside it; nothing new is computed."""
+    return {**asdict(result), "assumption_ids": assumption_ids_for(scenario), "focal_bridge": focal_bridge(result)}
+
+
 @app.post("/scenarios/evaluate")
-async def evaluate(request: EvaluateIn) -> list[dict]:
+async def evaluate(request: EvaluateIn, response: Response) -> list[dict]:
     draws = build_param_draws(k=request.k, seed=request.seed)
-    return jsonable_encoder([asdict(x) for x in evaluate_batch(request.scenarios, draws)])
+    started = time.perf_counter()
+    results = evaluate_batch(request.scenarios, draws)
+    # Server-side engine time, so the page can show compute separate from the network round trip.
+    response.headers["X-Engine-Ms"] = f"{(time.perf_counter() - started) * 1000:.1f}"
+    return jsonable_encoder([_result_view(r, s) for r, s in zip(results, request.scenarios, strict=True)])
 
 
 @app.post("/scenarios/nearest_supported")
@@ -285,7 +299,8 @@ async def sweep(request: SweepIn) -> list[dict]:
         source.levers[request.sku_id] = prior.model_copy(update=changes)
         scenarios.append(source)
     draws = build_param_draws(k=request.k, seed=request.seed)
-    return jsonable_encoder([asdict(x) for x in evaluate_batch(scenarios, draws)])
+    results = evaluate_batch(scenarios, draws)
+    return jsonable_encoder([_result_view(r, s) for r, s in zip(results, scenarios, strict=True)])
 
 
 def _export_payload(scenario: Scenario, k: int, seed: int) -> dict:

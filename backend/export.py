@@ -1,7 +1,8 @@
 """PowerPoint export of a workspace. Every figure comes from `evaluate_batch`; nothing is estimated here.
 
-A REFUSED scenario is listed with the engine's refusal reasons and no numbers at all. Percentages are
-simple ratios of engine totals against the first scenario (the baseline), the same as the app's board.
+A REFUSED scenario is listed with the engine's refusal reasons and no numbers at all. Figures are the focal
+brand's (Aurora's) weekly totals in INR, taken from the engine's `focal` result, and percentages are simple
+ratios of those totals against the first scenario (the baseline), the same as the app's comparison.
 """
 
 from __future__ import annotations
@@ -33,16 +34,28 @@ class ExportError(ValueError):
     """The saved scenarios cannot be exported (empty, or not valid scenarios)."""
 
 
-def _total(bands: dict[str, dict[str, float]]) -> float:
-    return float(sum(band["value"] for band in bands.values()))
-
-
 def _pct(value: float, base: float) -> float | None:
     return (value / base - 1) * 100 if base else None
 
 
 def _signed(value: float | None) -> str:
     return "n/a" if value is None else f"{value:+.1f}%"
+
+
+def _inr(value: float | None, *, signed: bool = False) -> str:
+    """Whole rupees with Indian digit grouping (₹2,35,586); `signed` adds an explicit + or -."""
+    if value is None:
+        return "n/a"
+    digits = str(int(round(abs(value))))
+    if len(digits) > 3:
+        head, tail = digits[:-3], digits[-3:]
+        groups = []
+        while len(head) > 2:
+            groups.insert(0, head[-2:])
+            head = head[:-2]
+        digits = ",".join(([head] if head else []) + groups + [tail])
+    sign = "-" if round(value) < 0 else ("+" if signed and round(value) > 0 else "")
+    return f"{sign}₹{digits}"
 
 
 def evaluate(scenario_dicts: list[dict[str, Any]]) -> tuple[list[Scenario], list[dict[str, Any]]]:
@@ -65,11 +78,15 @@ def summary_rows(scenarios: list[Scenario], results: list[dict[str, Any]]) -> li
                                "result_hash": result["result_hash"], "baseline": index == 0,
                                "reasons": [r["message"] for r in result["refusal_reasons"]]}
         if result["status"] == "REFUSED" or not base_ok:
-            row.update(volume_pct=None, revenue_pct=None, gp_pct=None)  # refused: no numbers, ever
+            row.update(units=None, revenue=None, gp=None, gp_change=None,
+                       volume_pct=None, revenue_pct=None, gp_pct=None)  # refused: no numbers, ever
         else:
-            row.update(volume_pct=_pct(_total(result["volume"]), _total(base["volume"])),
-                       revenue_pct=_pct(_total(result["gsv"]), _total(base["gsv"])),
-                       gp_pct=_pct(_total(result["gp"]), _total(base["gp"])))
+            f, b = result["focal"], base["focal"]
+            row.update(units=f["volume"]["value"], revenue=f["gsv"]["value"], gp=f["gp"]["value"],
+                       gp_change=f["gp"]["value"] - b["gp"]["value"],
+                       volume_pct=_pct(f["volume"]["value"], b["volume"]["value"]),
+                       revenue_pct=_pct(f["gsv"]["value"], b["gsv"]["value"]),
+                       gp_pct=_pct(f["gp"]["value"], b["gp"]["value"]))
         rows.append(row)
     return rows
 
@@ -98,27 +115,30 @@ def build_deck(workspace_name: str, scenarios: list[Scenario], results: list[dic
 
     cover = deck.slides.add_slide(blank)
     _text(cover, Inches(0.6), Inches(2.2), width, Inches(1.2), workspace_name, 38, True)
-    _text(cover, Inches(0.6), Inches(3.4), width, Inches(0.6), "Revenue growth scenario report", 20, color=PURPLE)
+    _text(cover, Inches(0.6), Inches(3.4), width, Inches(0.6), "Revenue growth scenario report: Aurora, weekly figures in INR", 20, color=PURPLE)
     frame = _text(cover, Inches(0.6), Inches(4.6), width, Inches(1.4),
                   f"Prepared by {author} on {datetime.now(UTC):%d %b %Y}", 13, color=GREY)
     _add_note(frame, f"Engine {ENGINE_VERSION}, data {_data_hash()[:12]}, {K} sensitivity draws, seed {SEED}")
     _add_note(frame, SYNTHETIC, 12, RED)
 
     table_slide = deck.slides.add_slide(blank)
-    _text(table_slide, Inches(0.6), Inches(0.4), width, Inches(0.7), "Scenarios against the baseline", 26, True)
-    shape = table_slide.shapes.add_table(len(rows) + 1, 5, Inches(0.6), Inches(1.3), width, Emu(Inches(0.5) * (len(rows) + 1)))
+    _text(table_slide, Inches(0.6), Inches(0.4), width, Inches(0.7), "Aurora scenarios against the baseline (per week)", 26, True)
+    shape = table_slide.shapes.add_table(len(rows) + 1, 8, Inches(0.6), Inches(1.3), width, Emu(Inches(0.5) * (len(rows) + 1)))
     table = shape.table
-    for col, head in enumerate(("Scenario", "Status", "Volume", "Revenue", "Gross profit")):
+    for col, head in enumerate(("Scenario", "Status", "Units", "Revenue", "Gross profit", "Change in gross profit", "Volume", "Gross profit %")):
         table.cell(0, col).text = head
     for r, row in enumerate(rows, start=1):
         label = row["name"] + (" (baseline)" if row["baseline"] else "")
-        values = (label, row["status"], _signed(row["volume_pct"]), _signed(row["revenue_pct"]), _signed(row["gp_pct"]))
+        change = "n/a" if row["baseline"] else _inr(row["gp_change"], signed=True)
+        units = "n/a" if row["units"] is None else f"{round(row['units']):,}"
+        values = (label, row["status"], units, _inr(row["revenue"]), _inr(row["gp"]), change,
+                  _signed(row["volume_pct"]), _signed(row["gp_pct"]))
         for col, value in enumerate(values):
             table.cell(r, col).text = "no figures: refused" if (row["status"] == "REFUSED" and col >= 2) else value
     for cell in (c for rw in table.rows for c in rw.cells):
         for paragraph in cell.text_frame.paragraphs:
             for run in paragraph.runs:
-                run.font.size = Pt(13)
+                run.font.size = Pt(11)
 
     chartable = [r for r in rows if r["gp_pct"] is not None and not r["baseline"]]
     if chartable:

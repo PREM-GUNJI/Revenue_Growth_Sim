@@ -14,12 +14,16 @@ Two kinds of constants live here:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 import numpy as np
 
 Source = Literal["data-derived", "business-input", "modelling-choice"]
+
+# Every money figure in the synthetic data, the engine and the UI is in this currency.
+CURRENCY_CODE = "INR"
+CURRENCY_SYMBOL = "₹"
 
 
 @dataclass(frozen=True)
@@ -31,11 +35,17 @@ class Assumption:
     source: Source
     rationale: str
     valid_range: tuple[float, float] | None = None
+    # Where a reader can check the choice, or an honest statement that no external source exists.
+    # Set for every registered assumption by `_with_references` below; never a claim of fitting.
+    reference: str | None = None
 
 
 # --- Portfolio catalog -------------------------------------------------
 # 3 fictional brands x 4 pack formats = 12 SKUs (PLAN.md section 3).
 BRANDS = ["Aurora", "Boreal", "Comet"]
+# The brand whose decisions this tool supports. Boreal and Comet are the competitors: their SKUs are
+# modelled so cross-price effects are visible, but their profit is not the user's profit.
+FOCAL_BRAND = "Aurora"
 FORMATS = ["can_330ml", "pet_500ml", "bottle_1500ml", "multipack_6x330ml"]
 PACK_SIZE_L = {
     "can_330ml": 0.33,
@@ -187,58 +197,58 @@ PULL_FORWARD_SHARE = Assumption(
 RAW_MATERIAL_COST_PER_L = Assumption(
     id="A-013",
     label="Raw material cost per litre",
-    value=0.12,
-    unit="$/L",
+    value=10.0,
+    unit="INR/L",
     source="business-input",
-    rationale="Representative CPG raw-material cost (sweetener, water treatment, CO2).",
-    valid_range=(0.08, 0.20),
+    rationale="Synthetic illustrative cost of sweetener, water treatment and CO2 per litre of finished drink.",
+    valid_range=(7.0, 16.0),
 )
 PACKAGING_COST_PER_UNIT: dict[str, Assumption] = {
     "can_330ml": Assumption(
         id="A-014a",
         label="Packaging cost per unit, 330ml can",
-        value=0.08,
-        unit="$/unit",
+        value=5.0,
+        unit="INR/unit",
         source="business-input",
-        rationale="Aluminium can stock is the most expensive packaging per unit volume.",
-        valid_range=(0.06, 0.12),
+        rationale="Synthetic aluminium can cost at bulk volumes; the aluminium-price cost shock acts on this line.",
+        valid_range=(4.0, 8.0),
     ),
     "pet_500ml": Assumption(
         id="A-014b",
         label="Packaging cost per unit, 500ml PET",
-        value=0.05,
-        unit="$/unit",
+        value=4.5,
+        unit="INR/unit",
         source="business-input",
-        rationale="PET bottle, mid packaging cost.",
-        valid_range=(0.03, 0.08),
+        rationale="Synthetic PET bottle, cap and label cost; the PET-resin cost shock acts on this line.",
+        valid_range=(3.0, 7.0),
     ),
     "bottle_1500ml": Assumption(
         id="A-014c",
         label="Packaging cost per unit, 1.5L bottle",
-        value=0.12,
-        unit="$/unit",
+        value=10.0,
+        unit="INR/unit",
         source="business-input",
-        rationale="Larger PET bottle, more resin per unit.",
-        valid_range=(0.09, 0.16),
+        rationale="Larger PET bottle, more resin per unit; the PET-resin cost shock acts on this line.",
+        valid_range=(7.0, 14.0),
     ),
     "multipack_6x330ml": Assumption(
         id="A-014d",
         label="Packaging cost per unit, 6x330ml multipack",
-        value=0.25,
-        unit="$/unit",
+        value=30.0,
+        unit="INR/unit",
         source="business-input",
-        rationale="6 cans plus multipack wrap/carton.",
-        valid_range=(0.20, 0.32),
+        rationale="Six cans at bulk cost plus a carton; the aluminium-price cost shock acts on this line.",
+        valid_range=(24.0, 38.0),
     ),
 }
 VARIABLE_MANUFACTURING_COST_PER_L = Assumption(
     id="A-015",
     label="Variable manufacturing cost per litre",
-    value=0.20,
-    unit="$/L",
+    value=16.0,
+    unit="INR/L",
     source="business-input",
-    rationale="Filling, labour and energy cost, flat across formats.",
-    valid_range=(0.15, 0.28),
+    rationale="Synthetic filling, labour and energy cost per litre, flat across formats.",
+    valid_range=(11.0, 22.0),
 )
 FIXED_TRADE_TERMS_PCT = Assumption(
     id="A-016",
@@ -415,7 +425,55 @@ CONJOINT_SUPPLIED_PART_WORTHS = Assumption(
     valid_range=(-10.0, 10.0),
 )
 
-ASSUMPTIONS: dict[str, Assumption] = {
+_ELASTICITY_URL = "https://pure.psu.edu/en/publications/a-meta-analysis-of-us-food-demand-elasticities-to-detect-the-impa/"
+_MSI_URL = "https://www.msi.org/working-paper/observational-price-variation-in-scanner-data-cannot-reproduce-experimental-price-elasticities/"
+_PROMO_URL = "https://www.tellius.com/cpg/trade-promotion-analytics"
+
+_REF_ELASTICITY = (
+    "Context only, not a fitted value. Published scanner-data studies report a wide spread of soft-drink "
+    f"own-price elasticities, with household scanner data tending to be more elastic ({_ELASTICITY_URL}). "
+    f"Observational elasticities can also differ from experimental ones ({_MSI_URL}), so the value carries "
+    "a range that drives the sensitivity bands."
+)
+_REF_CROSS = (
+    "Modelling choice; no public source gives brand-pair cross elasticities for this synthetic market. "
+    f"Same caution on observational estimates as the own-price values ({_MSI_URL})."
+)
+_REF_PROMO = (
+    "Modelling choice. Promotion lift measured against a baseline, with pull-forward and cannibalisation, "
+    f"is standard trade-promotion analytics practice ({_PROMO_URL}); the values here are illustrative."
+)
+_REF_COST = (
+    "Synthetic illustrative figure. Public retail scanner data does not carry a manufacturer's cost structure, "
+    "so there is no external source to cite; the range feeds the sensitivity bands."
+)
+_REF_ENGINE = "Engine setting, not a market claim; no external source applies."
+_REF_QUALITATIVE = "Declared limitation of the model; see docs/HONESTY.md."
+_REF_RESEARCH = (
+    "Synthetic consumer-evidence input supplied by the analyst; nothing is estimated from real respondents."
+)
+_REF_SUPPORT = "Data-derived from the synthetic dataset's coverage; see docs/HONESTY.md."
+
+_REFERENCES: dict[str, str] = {
+    **{aid: _REF_ELASTICITY for aid in ("A-001", "A-002", "A-003", "A-004")},
+    **{aid: _REF_CROSS for aid in ("A-005", "A-006")},
+    **{aid: _REF_PROMO for aid in ("A-007", "A-008", "A-009", "A-010", "A-011", "A-012")},
+    **{aid: _REF_COST for aid in ("A-013", "A-014a", "A-014b", "A-014c", "A-014d", "A-015", "A-016", "A-017", "A-017b")},
+    **{aid: _REF_QUALITATIVE for aid in ("A-018", "A-019", "A-020")},
+    "A-021": _REF_SUPPORT,
+    **{aid: _REF_ENGINE for aid in ("A-022", "A-023", "A-024", "A-025")},
+    **{aid: _REF_RESEARCH for aid in (
+        "A-026", "A-027", "A-028", "A-029", "A-030", "A-031", "A-032", "A-033", "A-034", "A-035", "A-036", "A-037")},
+}
+
+
+def _with_references(assumptions: dict[str, Assumption]) -> dict[str, Assumption]:
+    """Attach `reference` to each assumption; an assumption without an entry is a coverage failure
+    caught by tests/unit/test_assumption_sources.py rather than silently left blank."""
+    return {aid: replace(a, reference=_REFERENCES.get(aid)) for aid, a in assumptions.items()}
+
+
+ASSUMPTIONS: dict[str, Assumption] = _with_references({
     **{a.id: a for a in OWN_ELASTICITY_BY_FORMAT.values()},
     CROSS_ELASTICITY_WITHIN_BRAND.id: CROSS_ELASTICITY_WITHIN_BRAND,
     CROSS_ELASTICITY_ACROSS_BRAND.id: CROSS_ELASTICITY_ACROSS_BRAND,
@@ -446,7 +504,7 @@ ASSUMPTIONS: dict[str, Assumption] = {
     RESEARCH_PRICE_GRID_STEP.id: RESEARCH_PRICE_GRID_STEP,
     CONJOINT_HETEROGENEITY_WEIGHT.id: CONJOINT_HETEROGENEITY_WEIGHT,
     CONJOINT_SUPPLIED_PART_WORTHS.id: CONJOINT_SUPPLIED_PART_WORTHS,
-}
+})
 
 # Research-layer ids, so provenance can separate them from engine assumptions.
 RESEARCH_ASSUMPTION_IDS = sorted(
@@ -504,15 +562,16 @@ GENERATOR_SEED = {
         "bottle_1500ml": 60.0,
         "multipack_6x330ml": 40.0,
     },
-    # Reference (list) price per unit, $ at price_index=1.0.
+    # Reference price per unit in INR at price_index=1.0, for the focal brand (Aurora). These equal the
+    # reference shelf prices A-028..A-031 so the engine, the pricing-research layer and the UI agree.
     "list_price_by_format": {
-        "can_330ml": 0.60,
-        "pet_500ml": 0.85,
-        "bottle_1500ml": 1.80,
-        "multipack_6x330ml": 3.20,
+        "can_330ml": 40.0,
+        "pet_500ml": 45.0,
+        "bottle_1500ml": 75.0,
+        "multipack_6x330ml": 120.0,
     },
-    # Brand price tier: premium / mainstream / value.
-    "brand_price_multiplier": {"Aurora": 1.05, "Boreal": 1.00, "Comet": 0.92},
+    # Brand price tier relative to Aurora: Aurora is the reference, the competitors sit below it.
+    "brand_price_multiplier": {"Aurora": 1.00, "Boreal": 0.95, "Comet": 0.88},
     "seasonality_amplitude": 0.05,  # log-scale sinusoidal amplitude, 52-week period
     "region_week_noise_sigma": 0.03,  # common shock per (sku, region, week)
     "store_noise_sigma": 0.08,  # idiosyncratic per (sku, region, store, week)

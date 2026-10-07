@@ -21,11 +21,16 @@ export const newScenario = (name: string, levers: ApiScenario["levers"] = {}, so
 
 export const sum = (values: Record<string, ApiBand>, edge: keyof ApiBand = "value") =>
   Object.values(values).reduce((total, band) => total + band[edge], 0)
-export const totals = (r: ApiScenarioResult) => ({
-  volume: sum(r.volume), gsv: sum(r.gsv), nsv: sum(r.nsv), gp: sum(r.gp),
-  promoSpend: -Object.values(r.bridge).reduce((t, b) => t + b.promo_cents + b.trade_cents, 0) / 100,
-  crossPack: Object.values(r.bridge).reduce((t, b) => t + b.cross_pack_cents, 0) / 100,
-})
+/** The focal brand's totals for one result (central values), in INR per typical week. Zeros for a refused result. */
+export const totals = (r: ApiScenarioResult) => {
+  const own = Object.entries(r.bridge ?? {}).filter(([sku]) => sku.startsWith(BRAND + "-")).map(([, b]) => b)
+  return {
+    volume: r.focal?.volume?.value ?? 0, gsv: r.focal?.gsv?.value ?? 0, nsv: r.focal?.nsv?.value ?? 0, gp: r.focal?.gp?.value ?? 0,
+    // Extra trade spend against the baseline (fixed terms on the larger sales plus promotion funding); negative when spend falls.
+    promoSpend: -own.reduce((t, b) => t + b.trade_cents, 0) / 100,
+    crossPack: own.reduce((t, b) => t + b.cross_pack_cents, 0) / 100,
+  }
+}
 export const changePct = (value: number, base: number) => (base ? (value / base - 1) * 100 : 0)
 
 export const signed = (v: number, digits = 1) =>
@@ -33,4 +38,10 @@ export const signed = (v: number, digits = 1) =>
 export const tone = (v: number) => (v < -0.05 ? "text-loss" : v > 0.05 ? "text-gain" : "text-muted-foreground")
 export const compact = (v: number) => new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(v)
 export const inr = (v: number) => "₹" + v.toFixed(2)
+const indian = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 })
+/** Whole rupees with Indian digit grouping, e.g. ₹2,35,586. */
+export const rupees = (v: number) => (v < 0 ? "−" : "") + "₹" + indian.format(Math.abs(Math.round(v)))
+/** A change in rupees with an explicit sign, e.g. +₹10,440 or −₹1,548. */
+export const signedRupees = (v: number) => (Math.round(v) === 0 ? "₹0" : (v > 0 ? "+" : "−") + "₹" + indian.format(Math.abs(Math.round(v))))
+export const units = (v: number) => indian.format(Math.round(v))
 export const SYNTHETIC = "SYNTHETIC CONSUMER EVIDENCE"

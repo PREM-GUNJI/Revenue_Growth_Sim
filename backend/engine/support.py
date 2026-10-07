@@ -119,7 +119,9 @@ def nearest_supported(scenario: Scenario, envelope: SupportEnvelope) -> NearestS
     from backend.assumptions.assumptions import PROMO_DEPTH_STEPS
     from backend.engine.scenario import Lever
 
-    candidate = scenario.model_copy(deep=True)
+    # Every lever below is replaced by a fresh Lever and the original is only read, so a new levers
+    # dict is enough; a deep copy of the whole scenario here dominated refused-scenario cost.
+    candidate = scenario.model_copy(update={"levers": dict(scenario.levers)})
     for sku in SKU_IDS:
         lever = candidate.levers.get(sku, Lever())
         lo, hi = envelope.baselines.price_index_p1_p99[sku]
@@ -158,7 +160,7 @@ def nearest_supported(scenario: Scenario, envelope: SupportEnvelope) -> NearestS
         decision = envelope.check(candidate)
     if decision.status == "REFUSED":
         raise RuntimeError("support envelope contains no evaluable baseline scenario")
-    original = scenario.model_copy(deep=True)
+    original = scenario
     distance = 0.0
     for sku in SKU_IDS:
         a, b = original.levers.get(sku, Lever()), candidate.levers[sku]

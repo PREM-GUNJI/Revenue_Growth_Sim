@@ -1,9 +1,10 @@
 {
-  "data_sha256": "441e456e78cc6ec2deec697e4c78e419bcb1693cd9ef0f0413845b527adcbee2",
+  "currency": "INR",
+  "data_sha256": "ab245853dd71020dc1f660cea3340746a74508e02d0cabe5c8de5184573eaa1e",
   "declared_gaps": [
     "price_index > 1.06 and promo_depth_pct > 20 (for the same sku, region, week)"
   ],
-  "generator_version": "1.0.0",
+  "generator_version": "1.1.0",
   "regions": [
     "North",
     "South",

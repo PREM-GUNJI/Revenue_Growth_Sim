@@ -41,6 +41,7 @@ import numpy as np
 import pandas as pd
 
 from backend.assumptions.assumptions import (
+    CURRENCY_CODE,
     GENERATOR_SEED,
     N_SKUS,
     N_WEEKS,
@@ -53,7 +54,7 @@ from backend.assumptions.assumptions import (
     promo_lift_log,
 )
 
-GENERATOR_VERSION = "1.0.0"
+GENERATOR_VERSION = "1.1.0"  # 1.1.0: unit_price is in INR (was an unlabelled "$" scale)
 
 DECLARED_GAPS = [
     "price_index > 1.06 and promo_depth_pct > 20 (for the same sku, region, week)",
@@ -219,6 +220,7 @@ def write_dataset(seed: int, out_dir: Path) -> dict:
     manifest = {
         "seed": seed,
         "generator_version": GENERATOR_VERSION,
+        "currency": CURRENCY_CODE,
         "row_count": len(df),
         "data_sha256": data_sha256,
         "declared_gaps": DECLARED_GAPS,

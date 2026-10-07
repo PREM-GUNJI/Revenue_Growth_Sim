@@ -3,14 +3,14 @@ import { DivBar, LineChart, type ChartPoint } from "@/components/bars"
 import { CandidateTable, SyntheticBanner } from "@/components/evidence-parts"
 import { evaluateScenarios, researchToScenarios } from "@/lib/api"
 import type { ApiLever, ApiScenario, ApiScenarioResult, EnvelopeInfo, EvidenceDefaults, ResearchBridgeResponse } from "@/lib/api"
-import { BRAND, PACKS, baselineLever, changePct, compact, inr, newScenario, packLabel, signed, skuFor, tone, totals } from "@/lib/catalog"
+import { BRAND, PACKS, baselineLever, changePct, compact, inr, newScenario, packLabel, rupees, signed, signedRupees, skuFor, tone, totals } from "@/lib/catalog"
 import type { Assumption } from "@/lib/types"
 
 type Add = (scenario: ApiScenario) => void
 const series = [
   { key: "volume", label: "Volume", color: "var(--edge)" },
   { key: "revenue", label: "Revenue", color: "var(--ink)" },
-  { key: "margin", label: "Gross margin", color: "var(--gain)" },
+  { key: "margin", label: "Gross profit", color: "var(--gain)" },
 ]
 
 /** Evaluate a grid of scenarios (point estimates) whenever the base scenario or grid changes. */
@@ -117,15 +117,15 @@ function PackPanel({ scenario, result, baseline, defaults }: {
           <td className="num px-3">{inr(r.price)}</td><td className="num px-3">{inr(r.perLitre)}</td>
           <td className="num px-3 text-right">{compact(r.v)}</td><td className="num px-3 text-right text-muted-foreground">{compact(r.b)}</td>
           <td className="px-3"><div className={`num mb-1 font-semibold ${tone(r.pct)}`}>{signed(r.pct)}</div><DivBar value={r.pct} max={max} /></td></tr>)}
-          <tr className="border-t text-muted-foreground"><td className="py-3 pr-3">Other brands</td><td colSpan={2} /><td className="num px-3 text-right">{compact(otherNow)}</td><td className="num px-3 text-right">{compact(otherBase)}</td>
+          <tr className="border-t text-muted-foreground"><td className="py-3 pr-3">Competitor brands <span className="text-xs">(cross-price effect only)</span></td><td colSpan={2} /><td className="num px-3 text-right">{compact(otherNow)}</td><td className="num px-3 text-right">{compact(otherBase)}</td>
             <td className="px-3"><div className={`num mb-1 ${tone(changePct(otherNow, otherBase))}`}>{signed(changePct(otherNow, otherBase))}</div><DivBar value={changePct(otherNow, otherBase)} max={max} /></td></tr></tbody></table></div>
     </section>
     <section className="grid gap-4 md:grid-cols-4">
       {[["Volume gained by packs", `+${compact(gained)}`, "text-gain"], ["Volume lost by packs", `−${compact(lost)}`, "text-loss"],
-        ["Portfolio volume", signed(changePct(tn.volume, tb.volume)), tone(changePct(tn.volume, tb.volume))], ["Portfolio gross margin", signed(changePct(tn.gp, tb.gp)), tone(changePct(tn.gp, tb.gp))]]
+        [`${BRAND} volume`, signed(changePct(tn.volume, tb.volume)), tone(changePct(tn.volume, tb.volume))], [`${BRAND} gross profit`, signed(changePct(tn.gp, tb.gp)) + " (" + signedRupees(tn.gp - tb.gp) + " a week)", tone(changePct(tn.gp, tb.gp))]]
         .map(([label, value, cls]) => <div key={label} className="rounded-lg border bg-card p-4"><p className="text-xs text-muted-foreground">{label}</p><p className={`num mt-1 text-2xl font-semibold ${cls}`}>{value}</p></div>)}
     </section>
-    <p className="text-sm text-muted-foreground">Cross-pack effect on gross margin in this scenario: <span className={`num font-medium ${tone(tn.crossPack)}`}>{tn.crossPack >= 0 ? "+" : "−"}{compact(Math.abs(tn.crossPack))}</span> currency units. Volume that moves from a high-margin pack to a low-margin one can leave total volume flat while margin falls.</p>
+    <p className="text-sm text-muted-foreground">Cross-pack effect on gross profit in this scenario: <span className={`num font-medium ${tone(tn.crossPack)}`}>{signedRupees(tn.crossPack)}</span> a week. Volume that moves from a high-margin pack to a low-margin one can leave total volume flat while profit falls.</p>
   </div>
 }
 
@@ -155,7 +155,7 @@ function PromoPanel({ base, pack, baseline, envelope }: { base: ApiScenario; pac
     <section className="rounded-lg border bg-card p-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div><h3 className="font-display text-lg font-semibold">Promotion economics, {packLabel(pack)}</h3>
-          <p className="text-xs text-muted-foreground">Depth, then incremental volume, trade spend, net revenue and gross margin, each from the engine.</p></div>
+          <p className="text-xs text-muted-foreground">Depth, then incremental volume, trade spend, net revenue and gross profit for Aurora, each from the engine.</p></div>
         <div className="flex gap-3 text-xs text-muted-foreground">
           <label>Mechanic<select aria-label="Mechanic" value={mechanic} onChange={(e) => setMechanic(e.target.value)} className="mt-1 block rounded-md border bg-card px-2 py-1.5 text-sm text-foreground">{mechanics.map((m) => <option key={m}>{m}</option>)}</select></label>
           <label>Weeks per month: <span className="num text-foreground">{weeks}</span><input aria-label="Promo weeks per month" type="range" min="1" max="4" step="1" value={weeks} onChange={(e) => setWeeks(Number(e.target.value))} className="mt-1 block w-32" /></label>
@@ -165,12 +165,12 @@ function PromoPanel({ base, pack, baseline, envelope }: { base: ApiScenario; pac
         <LineChart ariaLabel="Promotion response curves" points={points} series={series} xLabel="Promotion depth" xFormat={(x) => `${x}%`} /></div>
       {peak && most && <p className="mt-3 rounded-md bg-secondary/70 p-3 text-sm">
         {most.d === peak.d
-          ? <>Volume and gross margin both peak at <span className="num font-semibold">{peak.d}%</span> depth in this range.</>
-          : <>Volume keeps rising up to <span className="num font-semibold">{most.d}%</span> depth ({signed(most.volume)}), but gross margin peaks at <span className="num font-semibold">{peak.d}%</span> ({signed(peak.gp)}) and is <span className={`num font-semibold ${tone(most.gp)}`}>{signed(most.gp)}</span> at {most.d}%. A deeper promotion buys volume it cannot pay for.</>}</p>}
+          ? <>Volume and gross profit both peak at <span className="num font-semibold">{peak.d}%</span> depth in this range.</>
+          : <>Volume keeps rising up to <span className="num font-semibold">{most.d}%</span> depth ({signed(most.volume)}), but gross profit peaks at <span className="num font-semibold">{peak.d}%</span> ({signed(peak.gp)}) and is <span className={`num font-semibold ${tone(most.gp)}`}>{signed(most.gp)}</span> at {most.d}%. A deeper promotion buys volume it cannot pay for.</>}</p>}
     </section>
     <section className="overflow-x-auto rounded-lg border bg-card p-5">
       <table className="w-full min-w-[640px] text-sm">
-        <thead><tr className="text-left text-xs text-muted-foreground"><th className="py-2 font-normal">Depth</th><th className="px-3 text-right font-normal">Incremental volume</th><th className="px-3 text-right font-normal">Added by this step</th><th className="px-3 text-right font-normal">Trade spend</th><th className="px-3 text-right font-normal">Net revenue</th><th className="px-3 text-right font-normal">Gross margin</th></tr></thead>
+        <thead><tr className="text-left text-xs text-muted-foreground"><th className="py-2 font-normal">Depth</th><th className="px-3 text-right font-normal">Incremental volume</th><th className="px-3 text-right font-normal">Added by this step</th><th className="px-3 text-right font-normal">Trade spend</th><th className="px-3 text-right font-normal">Net revenue</th><th className="px-3 text-right font-normal">Gross profit</th></tr></thead>
         <tbody>{rows.map((r, i) => {
           if (!r.ok) return <tr key={r.d} className={`border-t ${r.refused ? "hatch" : ""}`}><td className="num py-2">{r.d}%</td><td colSpan={5} className="px-3 text-muted-foreground">{r.refused ? "REFUSED: outside the supported data, no numbers" : "…"}</td></tr>
           const prev = rows.slice(0, i).reverse().find((x) => x.ok)
@@ -178,11 +178,11 @@ function PromoPanel({ base, pack, baseline, envelope }: { base: ApiScenario; pac
           return <tr key={r.d} className="border-t"><td className="num py-2 font-medium">{r.d}%</td>
             <td className={`num px-3 text-right ${tone(r.volume)}`}>{signed(r.volume)}</td>
             <td className="num px-3 text-right text-muted-foreground">{step === undefined ? "n/a" : signed(step)}</td>
-            <td className="num px-3 text-right">{r.spend ? compact(r.spend) : "0"}</td>
+            <td className="num px-3 text-right">{r.spend ? rupees(r.spend) : "₹0"}</td>
             <td className={`num px-3 text-right ${tone(r.nsv)}`}>{signed(r.nsv)}</td>
             <td className={`num px-3 text-right font-semibold ${tone(r.gp)}`}>{signed(r.gp)}</td></tr>
         })}</tbody></table>
-      <p className="mt-3 text-xs text-muted-foreground">&ldquo;Added by this step&rdquo; shrinks as depth rises: promotion response saturates, while the price given away keeps growing. Trade spend is in synthetic currency units.</p>
+      <p className="mt-3 text-xs text-muted-foreground">&ldquo;Added by this step&rdquo; shrinks as depth rises: promotion response saturates, while the price given away keeps growing. Trade spend is the extra spend against the baseline, in rupees a week.</p>
     </section>
   </div>
 }

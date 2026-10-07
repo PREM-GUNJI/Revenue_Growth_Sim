@@ -1,48 +1,41 @@
-import { useState } from "react"
 import { ProvenanceChain } from "@/components/evidence-parts"
-import { runAgent, type AgentApiRun, type AgentClaim, type ApiScenario, type Provenance, type ResearchScenarioRow } from "@/lib/api"
+import { type AgentClaim, type ApiScenario, type Provenance, type ResearchScenarioRow } from "@/lib/api"
+import { rupees } from "@/lib/catalog"
+import { useWorkspace } from "@/workspace/workspace-context"
 
-const GOALS = [
-  "Improve margin without losing more than 5% volume.",
-  "What price would consumers accept for the 500ml pack? Use willingness to pay evidence.",
-  "Compare brand and pack trade-offs with a conjoint simulation, then test the best price.",
-]
 const RESEARCH_TOOLS = ["run_wtp", "run_gabor_granger", "run_van_westendorp", "run_conjoint_simulation"]
 const chipClass = (claim: AgentClaim) => claim.research_id ? "border-edge/50 bg-edge/10" : claim.label === "Recommended" ? "border-primary/50 bg-primary/10" : "bg-card"
 
-export function AgentPanel({ onAcceptScenario, workspaceId }: { onAcceptScenario: (scenario: ApiScenario) => void; workspaceId?: string }) {
-  const [goal, setGoal] = useState(GOALS[0])
-  const [run, setRun] = useState<AgentApiRun>()
-  const [error, setError] = useState<string>()
-  const [loading, setLoading] = useState(false)
+/** Suggestions that start from the user's own case rather than a generic prompt. */
+function suggestions(question: string | undefined): string[] {
+  return [
+    ...(question ? [question] : []),
+    "Which pack should we take price on, and which should we promote?",
+    "Input costs rise 8%. Find moves that protect gross profit without losing more than 5% volume.",
+    "What price would consumers accept for the 500ml pack? Use willingness to pay evidence.",
+  ]
+}
 
-  async function submit(text = goal) {
-    setLoading(true)
-    setError(undefined)
-    try {
-      setRun(await runAgent(text, workspaceId))
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Agent request failed")
-    } finally {
-      setLoading(false)
-    }
-  }
-
+/** The AI decision assistant. State lives in the case, so this shows the same run on the Recommend step and in the side drawer. */
+export function AgentPanel({ compact = false }: { compact?: boolean }) {
+  const { agent, addExternal, workspace } = useWorkspace()
+  const { goal, setGoal, run, error, loading, ask } = agent
   const evaluations = run?.tool_events.find((event) => event.name === "evaluate_scenarios")?.result
   const rows = Array.isArray(evaluations) ? evaluations : []
   const evidenceEvents = run?.tool_events.filter((event) => RESEARCH_TOOLS.includes(event.name)) ?? []
   const mapped = (run?.tool_events.find((event) => event.name === "research_to_scenarios")?.result ?? []) as ResearchScenarioRow[]
   const sourceFor = (scenario: ApiScenario): Provenance | undefined => mapped.find((row) => row.scenario?.name === scenario.name)?.provenance
+  const options = suggestions(workspace?.description)
 
   return <section className="space-y-6">
-    <div><h2 className="font-display text-2xl font-semibold">AI decision assistant</h2>
-      <p className="mt-1 max-w-2xl text-sm text-muted-foreground">The assistant chooses scenarios and, when useful, which synthetic consumer evidence to consult. The deterministic engine computes every number, and an auditor checks that each claim traces to a tool result.</p></div>
+    {!compact && <div><h2 className="font-display text-2xl font-semibold">Ask the AI decision assistant</h2>
+      <p className="mt-1 max-w-2xl text-sm text-muted-foreground">The assistant reads where Aurora stands, chooses scenarios and, when useful, which synthetic consumer evidence to consult. The deterministic engine computes every number, and an auditor checks that each claim traces to a tool result.</p></div>}
     <div className="space-y-3 rounded-lg border bg-card p-5">
-      <label className="block text-sm font-medium" htmlFor="agent-goal">Goal</label>
-      <textarea id="agent-goal" rows={3} maxLength={4000} value={goal} onChange={(event) => setGoal(event.target.value)} className="w-full rounded-md border bg-background p-3 text-sm" />
+      <label className="block text-sm font-medium" htmlFor={compact ? "agent-goal-drawer" : "agent-goal"}>What should it work out?</label>
+      <textarea id={compact ? "agent-goal-drawer" : "agent-goal"} rows={3} maxLength={4000} value={goal} onChange={(event) => setGoal(event.target.value)} className="w-full rounded-md border bg-background p-3 text-sm" />
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" disabled={loading || !goal.trim()} onClick={() => void submit()} className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{loading ? "Analyzing…" : "Run agent"}</button>
-        {GOALS.map((text) => <button key={text} type="button" onClick={() => setGoal(text)} className="rounded-md border px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground">{text.length > 46 ? text.slice(0, 44) + "…" : text}</button>)}
+        <button type="button" disabled={loading || !goal.trim()} onClick={() => void ask()} className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{loading ? "Analyzing…" : "Run assistant"}</button>
+        {options.map((text) => <button key={text} type="button" onClick={() => setGoal(text)} className="rounded-md border px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground">{text.length > 46 ? text.slice(0, 44) + "…" : text}</button>)}
       </div>
       {error && <p role="alert" className="text-sm text-loss">{error}</p>}
     </div>
@@ -71,16 +64,16 @@ export function AgentPanel({ onAcceptScenario, workspaceId }: { onAcceptScenario
         {mapped.slice(0, 1).map((row) => <details key={row.scenario_id} className="text-sm"><summary className="cursor-pointer text-muted-foreground">Provenance of the first candidate</summary><div className="mt-2"><ProvenanceChain source={row.provenance} scenarioId={row.scenario_id} resultHash={row.result_hash} /></div></details>)}
       </section>}
       <section className="space-y-2">
-        <h3 className="font-display text-lg font-semibold">Proposed comparison board</h3>
+        <h3 className="font-display text-lg font-semibold">Options the assistant compared</h3>
         {run.scenarios.map((scenario, index) => {
-          const result = rows[index] as { status?: string; portfolio_gp?: { value: number } | null } | undefined
+          const result = rows[index] as { status?: string; focal?: { gp?: { value: number } } } | undefined
           const source = sourceFor(scenario)
           return <div key={index} className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-card p-3 text-sm">
             <div><span className="font-medium">{scenario.name || "Scenario " + (index + 1)}</span>
               <span className={`ml-2 ${result?.status === "REFUSED" ? "font-medium text-loss" : "text-muted-foreground"}`}>{result?.status ?? "pending evaluation"}</span>
-              {result?.status !== "REFUSED" && result?.portfolio_gp && <span className="ml-2 num">gross profit {result.portfolio_gp.value.toLocaleString()}</span>}
+              {result?.status !== "REFUSED" && result?.focal?.gp && <span className="ml-2 num">Aurora gross profit {rupees(result.focal.gp.value)} a week</span>}
               {source && <span className="ml-2 rounded bg-edge/10 px-1.5 py-0.5 text-xs text-edge">research candidate</span>}</div>
-            <button type="button" onClick={() => onAcceptScenario(source ? { ...scenario, source } : scenario)} className="rounded-md border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary">Add to simulator</button>
+            <button type="button" onClick={() => addExternal(source ? { ...scenario, source } : scenario)} className="rounded-md border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary">Add to my options</button>
           </div>
         })}
       </section>

@@ -8,17 +8,27 @@ export interface ApiAssumption {
   source: "data-derived" | "business-input" | "modelling-choice"
   rationale: string
   valid_range: [number, number] | null
+  /** Where a reader can check the choice, or a plain statement that no external source exists. */
+  reference: string | null
 }
 export interface ApiBand { value: number; p10: number; p50: number; p90: number }
 export interface ApiBridge { price_cents: number; volume_cents: number; cross_pack_cents: number; promo_cents: number; trade_cents: number; cogs_cents: number; total_cents: number }
+/** The focal brand's totals. Bands come from per-draw sums, so they are valid ranges for the total. Empty if refused. */
+export type ApiFocal = Record<"volume" | "gsv" | "nsv" | "gp", ApiBand>
 export interface ApiScenarioResult {
   scenario_id: string
   status: "SUPPORTED" | "EDGE" | "REFUSED"
+  focal: ApiFocal
   volume: Record<string, ApiBand>
   gsv: Record<string, ApiBand>
   nsv: Record<string, ApiBand>
   gp: Record<string, ApiBand>
+  /** All three brands together. The focal brand's figures are the ones to decide on. */
   portfolio_gp: ApiBand | null
+  /** Registry assumptions this result depends on. */
+  assumption_ids?: string[]
+  /** The focal brand's profit bridge in hundredths of a rupee; the parts add up exactly to total_cents. */
+  focal_bridge?: ApiBridge | null
   bridge: Record<string, ApiBridge>
   result_hash: string
   refusal_reasons: Array<{ sku_id: string; lever: string; message: string }>
@@ -89,7 +99,7 @@ export interface EvidenceDefaults {
 }
 export interface EnvelopeInfo {
   price_index_p1_p99: Record<string, [number, number]>
-  promo_depth_observed: Record<string, [number, number]>
+  promo_depth_observed: number[]
   formats: string[]
   mechanics: string[]
   depth_steps: number[]
@@ -111,7 +121,7 @@ function detailOf(text: string): string {
   }
 }
 
-export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit, onResponse?: (response: Response) => void): Promise<T> {
   const response = await fetch("/api" + path, {
     ...init, headers: { "Content-Type": "application/json", ...init?.headers },
   })
@@ -123,9 +133,10 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const detail = await response.text()
     throw new ApiError(response.status, detailOf(detail) || response.statusText, "API " + response.status + ": " + (detail || response.statusText))
   }
+  onResponse?.(response)
   return response.json() as Promise<T>
 }
-const post = <T,>(path: string, body: unknown) => request<T>(path, { method: "POST", body: JSON.stringify(body) })
+const post = <T,>(path: string, body: unknown, onResponse?: (response: Response) => void) => request<T>(path, { method: "POST", body: JSON.stringify(body) }, onResponse)
 const forEngine = (scenarios: ApiScenario[]) => scenarios.map(({ source: _source, ...scenario }) => scenario)
 
 export function getAssumptions() { return request<ApiAssumption[]>("/assumptions") }
@@ -133,9 +144,51 @@ export function getModelInfo() {
   return request<{ engine_version: string; data_hash: string; model_spec_hash: string; deterministic: boolean }>("/model/info")
 }
 export function getEnvelope() { return request<EnvelopeInfo>("/envelope") }
-export function evaluateScenarios(scenarios: ApiScenario[], k = 200, seed = 42) {
-  return post<ApiScenarioResult[]>("/scenarios/evaluate", { scenarios: forEngine(scenarios), k, seed })
+/** `onEngineMs` receives the server's own compute time for the batch (not the network round trip). */
+export function evaluateScenarios(scenarios: ApiScenario[], k = 200, seed = 42, onEngineMs?: (ms: number) => void) {
+  return post<ApiScenarioResult[]>("/scenarios/evaluate", { scenarios: forEngine(scenarios), k, seed }, onEngineMs
+    ? (response) => { const ms = Number(response.headers.get("X-Engine-Ms")); if (Number.isFinite(ms)) onEngineMs(ms) }
+    : undefined)
 }
+
+export interface SituationProbe {
+  status: "SUPPORTED" | "EDGE" | "REFUSED"
+  reasons?: string[]
+  scenario_id?: string
+  focal_volume_pct?: number | null
+  focal_gsv_pct?: number | null
+  focal_gp_change?: number
+  focal_gp_pct?: number | null
+  focal_gp_change_p10?: number
+  focal_gp_change_p90?: number
+  pack_volume_pct?: number | null
+}
+export interface SituationTotals { units: number; litres: number; gsv: number; trade: number; nsv: number; cogs: number; gp: number; gp_margin_pct: number }
+export interface SituationSku {
+  sku_id: string; brand: string; format: string; pack_size_l: number; is_focal: boolean
+  price: number; price_per_litre: number; price_range: [number, number]
+  baseline_units: number; baseline_gsv: number; baseline_trade: number; baseline_nsv: number; baseline_cogs: number; baseline_gp: number; gp_margin_pct: number
+  history: { promo_week_share_pct: number; avg_promo_depth_pct: number; main_mechanic: string }
+  own_elasticity: number; own_elasticity_id: string
+  price_gap_vs_competitors_pct: Record<string, number | null> | null
+  price_probe?: SituationProbe
+  promo_probe?: SituationProbe
+}
+/** Where the focal brand stands today, and what the engine says about a few small moves. */
+export interface Situation {
+  currency: string
+  focal_brand: string
+  competitors: string[]
+  period: { basis: string; history_weeks: number; regions: string[]; stores_per_region: number; rows: number; generator_version: string }
+  data_hash: string
+  skus: SituationSku[]
+  totals: { focal: SituationTotals; by_brand: Record<string, SituationTotals>; market: SituationTotals; focal_value_share_pct: number }
+  cost_shock_probe: SituationProbe & { shock_pct: number; applies_to: string }
+  probe_definitions: { price: string; promo: string }
+  assumption_ids: string[]
+  labels: Record<string, "Observed" | "Modeled" | "Assumed">
+}
+export function getSituation() { return request<Situation>("/situation") }
 export function nearestSupported(scenario: ApiScenario) {
   return post<{ scenario: ApiScenario; scenario_id: string; distance: number; status: "SUPPORTED" | "EDGE" }>(
     "/scenarios/nearest_supported", { scenario: forEngine([scenario])[0] })

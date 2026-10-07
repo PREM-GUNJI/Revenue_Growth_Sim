@@ -13,7 +13,8 @@ from backend.agent.tools import AgentTools
 from backend.agent.trace import TraceRecorder
 from backend.engine.scenario import CostShock, Scenario
 
-PROMPT_VERSION_HASH = hashlib.sha256(b"revenue-growth-agent-phase10-14-v2").hexdigest()
+# v3: focal-brand objective, baseline context for the planner, bridge and assumption ids in results.
+PROMPT_VERSION_HASH = hashlib.sha256(b"revenue-growth-agent-phase10-14-v3").hexdigest()
 
 
 def _research_claims(research: dict, ranking: list[dict], evaluation_call_id: str) -> list[Claim]:
@@ -32,10 +33,10 @@ def _research_claims(research: dict, ranking: list[dict], evaluation_call_id: st
               label="Modeled", tool_call_id=research["research_call_id"],
               field_path=f"candidates.{candidate_index}.price", research_id=research["research_id"]),
         Claim(claim_id="modeled-research-candidate-gp",
-              text="That research candidate has modeled portfolio gross profit "
+              text="That research candidate has modeled gross profit for the focal brand "
               + format(float(research["gp_by_scenario"][scenario_index]), ".1f") + ".",
               label="Modeled", tool_call_id=evaluation_call_id,
-              field_path=f"{scenario_index}.portfolio_gp.value"),
+              field_path=f"{scenario_index}.focal.gp.value"),
     ]
 
 
@@ -79,17 +80,17 @@ class ScriptedLLM:
         # the user-supplied name, or any index-derived digit, in generated prose; the
         # name still appears unmodified in tool_events/plan.scenarios for the UI/trace.
         best_name = "the top-ranked scenario"
-        gp_value = float(best["portfolio_gp"]["value"])
+        gp_value = float(best["focal"]["gp"]["value"])
         modeled = Claim(
             claim_id="modeled-best-gp",
-            text=best_name + " has modeled portfolio gross profit " + format(gp_value, ".1f") + ".",
+            text=best_name + " has modeled gross profit for the focal brand " + format(gp_value, ".1f") + ".",
             label="Modeled",
             tool_call_id=evaluation_call_id,
-            field_path=str(best_index) + ".portfolio_gp.value",
+            field_path=str(best_index) + ".focal.gp.value",
         )
         recommended = Claim(
             claim_id="recommended-best-scenario",
-            text="Prefer " + best_name + " when portfolio gross profit is the priority.",
+            text="Prefer " + best_name + " when gross profit for the focal brand is the priority.",
             label="Recommended",
             references=[modeled.claim_id],
         )
@@ -163,11 +164,13 @@ class AgentOrchestrator:
         envelope_id, envelope = invoke("get_envelope", {})
         assumptions_id, assumptions = invoke("get_assumptions", {})
         model_call_id, model_info = invoke("get_model_info", {})
+        baseline_call_id, baseline = invoke("get_baseline", {})
         model_started = time.perf_counter()
         plan = llm.plan(goal, {
             "envelope": envelope, "envelope_tool_call_id": envelope_id,
             "assumptions": assumptions, "assumptions_tool_call_id": assumptions_id,
             "model_info": model_info, "model_info_tool_call_id": model_call_id,
+            "baseline": baseline, "baseline_tool_call_id": baseline_call_id,
         })
         model_time_ms += (time.perf_counter() - model_started) * 1000
         if not isinstance(plan, AgentPlan):
@@ -198,7 +201,7 @@ class AgentOrchestrator:
             "k": 200, "seed": 42,
         })
         _ranking_call_id, ranking = invoke(
-            "rank_scenarios", {"results": evaluated, "metric": "portfolio_gp"}
+            "rank_scenarios", {"results": evaluated, "metric": "focal_gp"}
         )
         invoke("pareto_flags", {"results": evaluated})
         for result, scenario in zip(evaluated, plan.scenarios, strict=True):
@@ -210,8 +213,8 @@ class AgentOrchestrator:
                 })
 
         if research_context is not None:
-            gp = {i: evaluated[i]["portfolio_gp"]["value"] for i in research_context["scenario_indices"]
-                  if evaluated[i].get("portfolio_gp") is not None}
+            gp = {i: evaluated[i]["focal"]["gp"]["value"] for i in research_context["scenario_indices"]
+                  if evaluated[i].get("focal")}
             research_context["gp_by_scenario"] = gp
             # Refused candidates have no modeled numbers and can never be cited.
             keep = [(s_i, c_i) for s_i, c_i in zip(research_context["scenario_indices"],
