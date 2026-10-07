@@ -116,12 +116,39 @@ portable guarantees.
 | Initial full path | — | 51.33 ms | 455.33 ms | 4,492.36 ms | Failed 100/1k/10k budgets |
 | Fast paths + vectorised feasibility | — | 54.44 ms | 403.08 ms | 4,724.61 ms | Small/negative change at scale |
 | Larger chunks after bulk work | 1.11 ms | 45.72 ms | 360.27 ms | 4,412.54 ms | Passed 1/100 only |
-| Latest recorded benchmark | 1.74 ms | 27.05 ms | 20.13 ms | 161.97 ms | Passed all AC-016 budgets |
+| Repeated-scenario benchmark (13 distinct scenarios) | 1.74 ms | 27.05 ms | 20.13 ms | 161.97 ms | Passed, but see the caveat below: not a unique-scenario workload |
+| **Unique-scenario benchmark, 2026-10-07** (see "Unique-scenario benchmark") | 1.02 ms | 38.35 ms | 333.99 ms | 3,772.03 ms | **Passes 1 and 100; misses 1,000 and 10,000** |
 
-The latest report is `reports/engine_bench.md`, generated with Python
-3.11.17 and NumPy 1.26.4 on Windows 10. Its p95 values are below the target
-by margins of 65%, 46%, 92% and 92% respectively at 1, 100, 1,000 and
-10,000 scenarios.
+`reports/engine_bench.md` is now generated from 10,000 *distinct*, support-valid
+scenarios, so it reports the unique-scenario row above (Python 3.11.17, NumPy
+1.26.4, Windows 11, 9 timed runs per size). The repeated-scenario row is kept
+as history of what the earlier harness measured.
+
+## Unique-scenario benchmark (2026-10-07)
+
+The caveat below asked for this. `bench_engine.py` now builds every scenario from a can-price x
+PET-price grid (0.95-1.05, all supported), so the duplicate-scenario shortcut cannot flatter the
+large sizes. First measurement on that workload: 8.74 / 65 / 542 / 6,271 ms at 1 / 100 / 1,000 /
+10,000, so AC-016 had not actually been met at 100 or above.
+
+Changes made, each checked against the previous engine on 401 scenarios (promos, cost shocks,
+refusals, k=200 and k=0): statuses, scenario IDs, result hashes, refusal reasons, bridges and every
+central value are identical; band quantiles differ by at most 7e-16 relative.
+
+- Per-SKU GSV, NSV and GP quantiles are derived from one volume quantile and the per-unit amount,
+  which is constant across draws (a negative factor swaps p10 and p90). This removes three of five
+  full quantile passes and most full-size arrays; central values still use the original formulas.
+- The bridge's intermediate stages are computed for the central draw only, as that is all that is reported.
+- Bulk `tolist()` replaces per-cell numpy indexing when building bands.
+- Refused scenarios no longer deep-copy the whole result, and `nearest_supported` no longer deep-copies
+  the scenario three times; baseline levers are quantised once; the Decimal quantiser is cached.
+
+Remaining cost is per-scenario Python object construction (48 `Band` objects and a 12-SKU result hash
+per scenario) plus quantile partitioning. Reaching 250 ms / 2 s with this result shape needs lazy or
+columnar results rather than more tuning, which changes the engine's public result type, so it has
+not been done. **The budgets are unchanged and AC-016 remains open at 1,000 and 10,000 scenarios.**
+A scenario set that is 35% refused is slower per scenario than the in-support set because each
+refusal also builds a nearest-supported suggestion.
 
 ## Correctness safeguards
 

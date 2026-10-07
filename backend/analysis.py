@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from backend.agent.tools import ToolError, _override
-from backend.assumptions.assumptions import ASSUMPTIONS, SKU_IDS
+from backend.assumptions.assumptions import ASSUMPTIONS, FOCAL_BRAND, SKU_IDS, SKUS
 from backend.engine.batch import evaluate_batch
 from backend.engine.scenario import Lever, Scenario
 from backend.model.spec import build_param_draws
@@ -18,11 +18,12 @@ PROMO_OPTIONS = [("none", 0.0, 0.0), ("TPR", 10.0, 2.0)]
 
 
 def _gp(result: dict) -> float | None:
-    return None if result["status"] == "REFUSED" or result["portfolio_gp"] is None else result["portfolio_gp"]["value"]
+    # The focal brand's gross profit: competitor brands' profit is not the user's profit.
+    return None if result["status"] == "REFUSED" or not result["focal"] else result["focal"]["gp"]["value"]
 
 
 def _volume(result: dict) -> float:
-    return sum(v["value"] for v in result["volume"].values())
+    return result["focal"]["volume"]["value"]
 
 
 def _leader(results: list[dict]) -> int | None:
@@ -67,10 +68,10 @@ def sensitivity(scenarios: list[Scenario], seed: int = 42) -> dict:
 
 
 def goal_seek(max_volume_loss_pct: float = 5.0, sku_ids: list[str] | None = None, top: int = 5, seed: int = 42) -> dict:
-    """Max portfolio gross profit subject to a volume-loss cap, over single-SKU and portfolio-wide price/promo moves."""
+    """Max focal-brand gross profit subject to a unit-loss cap, over single-SKU and brand-wide price/promo moves."""
     if not 0 <= max_volume_loss_pct <= 100:
         raise ToolError("max_volume_loss_pct must be between 0 and 100")
-    skus = sku_ids or SKU_IDS
+    skus = sku_ids or [item["sku_id"] for item in SKUS if item["brand"] == FOCAL_BRAND]
     unknown = set(skus) - set(SKU_IDS)
     if unknown:
         raise ToolError("unknown sku ids: " + ", ".join(sorted(unknown)))
@@ -80,7 +81,7 @@ def goal_seek(max_volume_loss_pct: float = 5.0, sku_ids: list[str] | None = None
             lever = Lever(price_index=price, promo_depth_pct=depth, mechanic=mechanic, promo_weeks_per_month=weeks)
             for sku in skus:
                 candidates.append(Scenario(name=f"{sku} price {price:g} {mechanic}", levers={sku: lever}))
-            candidates.append(Scenario(name=f"Portfolio price {price:g} {mechanic}", levers={s: lever for s in skus}))
+            candidates.append(Scenario(name=f"All {FOCAL_BRAND} packs price {price:g} {mechanic}", levers={s: lever for s in skus}))
     results = _evaluate(candidates, seed=seed)
     base_volume, base_gp = _volume(results[0]), _gp(results[0])
     kept = []
@@ -91,7 +92,7 @@ def goal_seek(max_volume_loss_pct: float = 5.0, sku_ids: list[str] | None = None
         loss = (base_volume - _volume(result)) / base_volume * 100
         if loss <= max_volume_loss_pct and gp > base_gp:
             kept.append({"scenario": scenario.model_dump(mode="json"), "scenario_id": result["scenario_id"],
-                         "portfolio_gp": gp, "gp_change": gp - base_gp, "volume_loss_pct": loss})
-    kept.sort(key=lambda r: (-r["portfolio_gp"], r["scenario_id"]))
-    return {"objective": "portfolio_gp", "max_volume_loss_pct": max_volume_loss_pct, "baseline_gp": base_gp,
+                         "focal_gp": gp, "gp_change": gp - base_gp, "volume_loss_pct": loss})
+    kept.sort(key=lambda r: (-r["focal_gp"], r["scenario_id"]))
+    return {"objective": "focal_gp", "max_volume_loss_pct": max_volume_loss_pct, "baseline_gp": base_gp,
             "evaluated": len(candidates) - 1, "feasible": len(kept), "top": kept[:top]}

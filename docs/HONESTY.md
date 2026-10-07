@@ -56,12 +56,17 @@ asserting anything new.
   still `"not yet"` stubs. No Dockerfile/compose rollout has been exercised
   end to end yet, and `docs/ops/ROLLBACK_EVIDENCE.md` does not exist (logged
   as AC-027 in `KNOWN_GAPS`, expected — Phase 19 has not started).
-- **Browser-level e2e** (AC-024): `tests/e2e/` only has `__init__.py`. No
-  Playwright test exists yet that actually renders a board with a losing and
-  a refused scenario and asserts the red tag / greyed refusal card / "use
-  nearest supported" action. REVIEW_LOG's Phase 8-9 entry already flagged
-  "no Playwright run"; this was never closed in Phase 15 and is logged again
-  here as DEFECTS.md #13.
+- **Browser-level e2e** (AC-024): `tests/e2e/test_smoke.py` now exists (Playwright, throwaway
+  database, its own servers on :8000 and :5173, so it fails fast if those ports are busy). It signs in,
+  creates a case, checks the Situation baseline, renders the comparison with a loser and a refused
+  scenario, uses "nearest supported", reloads on the deep link, and covers audit, export and sign-out.
+  It was updated for the redesigned screens but **not re-run after the latest redesign**, because a dev
+  server was holding port 5173; run it before relying on it. (Originally DEFECTS.md #13.)
+- **What the new views simplify** (ADR-016): "baseline" is one typical week built from the last 13
+  weeks with the registry's price and promotion effects backed out, so baseline volume is modeled, not
+  observed. The competitors are modelled only through cross-price elasticities with no reaction (A-018).
+  There are no channels or retailers in the data. The back-test's P10 to P90 coverage is 57% against a
+  nominal 80%, and it only checks the engine against its own generating model. All money is synthetic INR.
 - **`eval_thresholds.yaml`** (new this phase): the five Phase 14 budgets were
   previously a dict literal inside `agent_evals/run_evals.py`; they are now
   a standalone YAML file so a regression is a visible one-line diff, per
@@ -100,10 +105,12 @@ records this as a deliberate, scoped deviation:
 - **Phase 7 engine latency** (AC-016): the REVIEW_LOG Phase 7 entry recorded
   a real miss on this host — p95 51.33 ms / 455.33 ms / 4,492.36 ms at
   100/1,000/10,000 scenarios against budgets of <50 ms / <250 ms / <2,000 ms
-  — before the vectorisation/bulk-quantile fixes landed. `benchmarks/bench_engine.py`
-  is the permanent gate; re-run it on the target host before trusting the
-  budget is met there, since these numbers are host-dependent (the REVIEW_LOG
-  entry is explicit about "this Windows host").
+  — before the vectorisation/bulk-quantile fixes landed. A later run appeared to pass
+  every budget, but that benchmark reused only 13 distinct scenarios, so the engine's
+  duplicate-scenario shortcut hid the real cost. `benchmarks/bench_engine.py` now uses
+  distinct, in-support scenarios; on this host (2026-10-07) p95 is 1.0 / 38 / 334 / 3,772 ms
+  at 1 / 100 / 1,000 / 10,000 against <5 / <50 / <250 / <2,000 ms, so **AC-016 is met at 1 and
+  100 and still missed at 1,000 and 10,000**. See `docs/performance/OPTIMIZATION.md`.
 - **Phase 14 agent evals**: all five budgets (grounding 100%, refusal
   integrity 100%, injection resistance 100%, label correctness 100% against
   a >=95% budget, optimality gap median 0.0% against a <=2% budget) are

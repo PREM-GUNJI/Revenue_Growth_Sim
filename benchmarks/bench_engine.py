@@ -25,8 +25,16 @@ def measure(sizes: list[int], repeats: int) -> list[dict[str, float | int | bool
     draws = build_param_draws(k=200, seed=42)
     rows = []
     for size in sizes:
+        # Every scenario is distinct (can price x PET price grid, 0.95-1.05) so the engine's
+        # duplicate-scenario shortcut cannot flatter the larger sizes, and the grid sits inside the
+        # supported range: this gates interactive in-range use. Refused scenarios take a slower path
+        # (a nearest-supported suggestion is built for each) and are timed separately, see
+        # `measure_refusal_heavy`.
         scenarios = [
-            Scenario(levers={"Aurora-can_330ml": Lever(price_index=1.0 + ((i % 13) - 6) * 0.002)})
+            Scenario(levers={
+                "Aurora-can_330ml": Lever(price_index=round(0.95 + (i % 101) * 0.001, 3)),
+                "Aurora-pet_500ml": Lever(price_index=round(0.95 + (i // 101) * 0.001, 3)),
+            })
             for i in range(size)
         ]
         evaluate_batch(scenarios[:1], draws)  # warm imports and cached baseline

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import type { HeatCell } from "@/components/analytics-views"
-import { ApiError, evaluateScenarios, getAssumptions, getEnvelope, getEvidenceDefaults, getModelInfo, nearestSupported } from "@/lib/api"
-import type { ApiScenario, ApiScenarioResult, EnvelopeInfo, EvidenceDefaults } from "@/lib/api"
+import { ApiError, evaluateScenarios, getAssumptions, getEnvelope, getEvidenceDefaults, getModelInfo, getSituation, nearestSupported, runAgent } from "@/lib/api"
+import type { AgentApiRun, ApiScenario, ApiScenarioResult, EnvelopeInfo, EvidenceDefaults, Situation } from "@/lib/api"
 import { baselineLever, newScenario, skuFor } from "@/lib/catalog"
 import type { Assumption, ScenarioResult } from "@/lib/types"
 import { getWorkspace, getWorkspaceScenarios, saveWorkspaceScenarios, updateWorkspace } from "@/lib/workspaces"
@@ -11,7 +11,9 @@ import { asUiAssumption, pickBest, toUiResults } from "./helpers"
 import { WorkspaceContext } from "./workspace-context"
 import type { SaveState, WorkspaceStatus } from "./workspace-context"
 
-/** Holds one workspace's scenarios and their engine results; every workspace page reads it via useWorkspace(). */
+const DEFAULT_GOAL = "Improve gross profit without losing more than 5% volume."
+
+/** Holds one case's scenarios and their engine results; every page of the case reads it via useWorkspace(). */
 export function WorkspaceProvider({ workspaceId, children }: { workspaceId: string; children: ReactNode }) {
   const [workspace, setWorkspace] = useState<WorkspaceMeta>()
   const [status, setStatus] = useState<WorkspaceStatus>("loading")
@@ -26,6 +28,16 @@ export function WorkspaceProvider({ workspaceId, children }: { workspaceId: stri
   const [evidenceDefaults, setEvidenceDefaults] = useState<EvidenceDefaults>()
   const [modelInfo, setModelInfo] = useState<{ engine_version: string; data_hash: string }>()
   const [computeMs, setComputeMs] = useState<number>()
+  const [engineMs, setEngineMs] = useState<number>()
+  const [situation, setSituation] = useState<Situation>()
+  const [assumptionsOpen, setAssumptionsOpen] = useState(false)
+  const [assumptionFocus, setAssumptionFocus] = useState<string[]>([])
+  // The assistant's conversation lives here so the same run shows on the Recommend step and in the side drawer.
+  const [agentGoal, setAgentGoal] = useState("")
+  const [agentRun, setAgentRun] = useState<AgentApiRun>()
+  const [agentError, setAgentError] = useState<string>()
+  const [agentLoading, setAgentLoading] = useState(false)
+  const [assistantOpen, setAssistantOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string>()
   const [activePack, setActivePack] = useState<string>("can_330ml")
@@ -46,6 +58,7 @@ export function WorkspaceProvider({ workspaceId, children }: { workspaceId: stri
         versionRef.current = state.version
         savedRef.current = loaded
         setWorkspace(meta); setScenarios(loaded); setStatus("ready")
+        setAgentGoal((current) => current || meta.description || DEFAULT_GOAL)
       })
       .catch((cause: unknown) => {
         if (!active) return
@@ -83,17 +96,17 @@ export function WorkspaceProvider({ workspaceId, children }: { workspaceId: stri
 
   // Re-evaluate shortly after any edit; ignore responses that arrive out of order.
   useEffect(() => {
-    if (status !== "ready") return
+    if (status !== "ready" || !situation) return
     const ticket = ++latest.current
     const timer = setTimeout(async () => {
       setLoading(true)
       setError(undefined)
       const started = performance.now()
       try {
-        const raw = await evaluateScenarios(scenarios)
+        const raw = await evaluateScenarios(scenarios, 200, 42, setEngineMs)
         if (ticket !== latest.current) return
         setRawResults(raw)
-        setResults(toUiResults(raw, scenarios))
+        setResults(toUiResults(raw, scenarios, situation.totals.focal))
         setComputeMs(performance.now() - started)
       } catch (cause) {
         if (ticket === latest.current) setError(cause instanceof Error ? cause.message : "Unable to evaluate scenarios")
@@ -102,14 +115,14 @@ export function WorkspaceProvider({ workspaceId, children }: { workspaceId: stri
       }
     }, 350)
     return () => clearTimeout(timer)
-  }, [scenarios, status])
+  }, [scenarios, status, situation])
 
   useEffect(() => {
     let active = true
-    Promise.all([getAssumptions(), getModelInfo(), getEnvelope(), getEvidenceDefaults()])
-      .then(([items, info, env, defaults]) => {
+    Promise.all([getAssumptions(), getModelInfo(), getEnvelope(), getEvidenceDefaults(), getSituation()])
+      .then(([items, info, env, defaults, where]) => {
         if (!active) return
-        setAssumptions(items.map(asUiAssumption)); setModelInfo(info); setEnvelope(env); setEvidenceDefaults(defaults)
+        setAssumptions(items.map(asUiAssumption)); setModelInfo(info); setEnvelope(env); setEvidenceDefaults(defaults); setSituation(where)
       })
       .catch((cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : "Backend unavailable") })
     return () => { active = false }
@@ -133,7 +146,7 @@ export function WorkspaceProvider({ workspaceId, children }: { workspaceId: stri
       const evaluated = await evaluateScenarios(grid, 0, 42)
       setHeatmap(evaluated.map((item, i) => ({
         price: prices[i % prices.length], depth: depths[Math.floor(i / prices.length)], status: item.status,
-        gp: item.status === "REFUSED" ? null : item.portfolio_gp?.value ?? null,
+        gp: item.status === "REFUSED" ? null : item.focal?.gp?.value ?? null,
       })))
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to calculate heatmap")
@@ -173,13 +186,35 @@ export function WorkspaceProvider({ workspaceId, children }: { workspaceId: stri
     }
   }
 
+  async function askAgent(text?: string) {
+    const goal = (text ?? agentGoal).trim()
+    if (!goal) return
+    setAgentLoading(true)
+    setAgentError(undefined)
+    try {
+      setAgentRun(await runAgent(goal, workspaceId))
+    } catch (cause) {
+      setAgentError(cause instanceof Error ? cause.message : "Agent request failed")
+    } finally {
+      setAgentLoading(false)
+    }
+  }
+
+  /** Open the assumptions drawer, optionally highlighting the ones a result depends on. */
+  function openAssumptions(ids: string[] = []) {
+    setAssumptionFocus(ids)
+    setAssumptionsOpen(true)
+  }
+
   const supportedCount = results.filter((item) => item.status !== "REFUSED").length
   const refusedCount = results.length - supportedCount
   const best = pickBest(results, guardrail)
 
   return <WorkspaceContext.Provider value={{
     workspaceId, workspace, status, saveState, renameWorkspace, scenarios, setScenarios, results, rawResults, heatmap, heatmapLoading, assumptions, envelope, evidenceDefaults,
-    modelInfo, computeMs, loading, error, activePack, setActivePack, guardrail, setGuardrail, notice, setNotice, generateHeatmap,
+    modelInfo, computeMs, engineMs, situation, loading, error, activePack, setActivePack, guardrail, setGuardrail, notice, setNotice, generateHeatmap,
     updateLever, addScenario, addExternal, addNearestSupported, supportedCount, refusedCount, best,
+    assumptionsOpen, setAssumptionsOpen, assumptionFocus, openAssumptions,
+    agent: { goal: agentGoal, setGoal: setAgentGoal, run: agentRun, error: agentError, loading: agentLoading, ask: askAgent, open: assistantOpen, setOpen: setAssistantOpen },
   }}>{children}</WorkspaceContext.Provider>
 }

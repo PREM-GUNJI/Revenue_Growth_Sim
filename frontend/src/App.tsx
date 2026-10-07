@@ -9,8 +9,8 @@ import { BoardPage } from "@/pages/board-page"
 import { ConjointPage } from "@/pages/conjoint-page"
 import { EvidencePage } from "@/pages/evidence-page"
 import { HomePage } from "@/pages/home-page"
-import { OverviewPage } from "@/pages/overview-page"
 import { SimulatorPage } from "@/pages/simulator-page"
+import { SituationPage } from "@/pages/situation-page"
 import { WorkspaceLayout } from "@/workspace/workspace-layout"
 
 function NotFound() {
@@ -31,7 +31,7 @@ function App({ user, onSignOut }: { user: AuthUser; onSignOut: () => void }) {
           <Route element={<AppLayout user={user} onSignOut={onSignOut} />}>
             <Route index element={<HomePage />} />
             <Route path="w/:workspaceId" element={<WorkspaceLayout />}>
-              <Route index element={<OverviewPage />} />
+              <Route index element={<SituationPage />} />
               <Route path="simulator" element={<SimulatorPage />} />
               <Route path="board" element={<BoardPage />} />
               <Route path="assistant" element={<AssistantPage />} />

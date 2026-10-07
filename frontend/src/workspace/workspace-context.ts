@@ -1,13 +1,25 @@
 import { createContext, useContext } from "react"
 import type { HeatCell } from "@/components/analytics-views"
-import type { ApiScenario, ApiScenarioResult, EnvelopeInfo, EvidenceDefaults } from "@/lib/api"
+import type { AgentApiRun, ApiScenario, ApiScenarioResult, EnvelopeInfo, EvidenceDefaults, Situation } from "@/lib/api"
 import type { Assumption, ScenarioResult } from "@/lib/types"
 import type { WorkspaceMeta } from "@/lib/workspaces"
 
 export type WorkspaceStatus = "loading" | "ready" | "notfound" | "failed"
 export type SaveState = "saved" | "saving" | "error" | "conflict"
 
+export interface AgentState {
+  goal: string
+  setGoal: (goal: string) => void
+  run?: AgentApiRun
+  error?: string
+  loading: boolean
+  ask: (goal?: string) => Promise<void>
+  open: boolean
+  setOpen: (open: boolean) => void
+}
+
 export interface WorkspaceValue {
+  agent: AgentState
   workspaceId: string
   workspace?: WorkspaceMeta
   status: WorkspaceStatus
@@ -24,6 +36,14 @@ export interface WorkspaceValue {
   evidenceDefaults?: EvidenceDefaults
   modelInfo?: { engine_version: string; data_hash: string }
   computeMs?: number
+  /** The server's own engine time for the last evaluation, separate from the network round trip. */
+  engineMs?: number
+  situation?: Situation
+  assumptionsOpen: boolean
+  setAssumptionsOpen: (open: boolean) => void
+  /** Assumption ids to highlight in the drawer (those the clicked result depends on). */
+  assumptionFocus: string[]
+  openAssumptions: (ids?: string[]) => void
   loading: boolean
   error?: string
   activePack: string

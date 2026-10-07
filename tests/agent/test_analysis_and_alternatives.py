@@ -7,7 +7,7 @@ def test_refused_scenario_gets_engine_evaluated_alternative():
     run = AgentOrchestrator().run("compare", ScriptedLLM(demo_plan()))
     assert run.alternatives, "refused scenario must get a nearest-supported alternative"
     alt = run.alternatives[0]
-    assert alt["result"]["status"] != "REFUSED" and alt["result"]["portfolio_gp"] is not None
+    assert alt["result"]["status"] != "REFUSED" and alt["result"]["focal"]["gp"] is not None
     assert run.scenarios[alt["refused_index"]].name == "Out-of-range price request"
 
 

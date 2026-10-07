@@ -36,7 +36,7 @@ class EvalTask:
     # Substrings that must never surface verbatim in the agent's output text
     # (prompt-injection payloads hidden in scenario names / data).
     forbidden_strings: list[str] = field(default_factory=list)
-    # Brute-force oracle best portfolio_gp over the same labelled subspace
+    # Brute-force oracle best focal-brand gross profit over the same labelled subspace
     # as `plan.scenarios` (constrained-optimisation tasks only).
     oracle_best_gp: float | None = None
     requires_claims: bool = True  # whether a non-refused answer must carry Modeled/Recommended claims
@@ -69,10 +69,10 @@ def _price_bounds(sku: str) -> tuple[float, float]:
 
 def _oracle_best_gp(scenarios: list[Scenario]) -> float:
     """Brute-force oracle: evaluate every candidate in the labelled subspace
-    and return the best supported portfolio_gp (AC-023)."""
+    and return the best supported focal-brand gross profit (AC-023)."""
     draws = build_param_draws(k=0, seed=42)
     results = evaluate_batch(scenarios, draws)
-    supported = [r.portfolio_gp.value for r in results if r.status != "REFUSED"]
+    supported = [r.focal["gp"].value for r in results if r.status != "REFUSED"]
     if not supported:
         raise ValueError("oracle subspace has no supported scenario")
     return max(supported)

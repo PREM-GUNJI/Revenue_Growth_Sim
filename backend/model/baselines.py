@@ -60,7 +60,7 @@ def national_weekly_series(df: pd.DataFrame) -> pd.DataFrame:
 @dataclass
 class Baselines:
     baseline_volume: dict[str, float]  # per sku_id, national units/week
-    reference_price: dict[str, float]  # per sku_id, $ at price_index=1.0 (data-derived)
+    reference_price: dict[str, float]  # per sku_id, INR at price_index=1.0 (data-derived)
     price_index_p1_p99: dict[str, tuple[float, float]]
     promo_depth_observed: list[int]
     formats_observed: list[str]

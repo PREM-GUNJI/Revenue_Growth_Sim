@@ -1,7 +1,10 @@
 import { useState } from "react"
-import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom"
+import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router-dom"
+import { Bot } from "lucide-react"
+import { AgentPanel } from "@/components/agent-panel"
 import { AppFooter } from "@/components/app-footer"
 import { AssumptionsDrawer } from "@/components/assumptions-drawer"
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { exportWorkspace, openWorkspaceBrief } from "@/lib/governance"
 import { ScenarioBuilder } from "./scenario-builder"
 import { useWorkspace } from "./workspace-context"
@@ -15,7 +18,7 @@ function WorkspaceName() {
   const [draft, setDraft] = useState<string>()
   if (!workspace) return null
   if (draft === undefined) {
-    return <p className="flex items-center gap-2 text-sm font-medium text-muted-foreground">Workspace
+    return <p className="flex items-center gap-2 text-sm font-medium text-muted-foreground">Case
       <span className="text-foreground">{workspace.name}</span>
       <button type="button" onClick={() => setDraft(workspace.name)} className="rounded px-1.5 py-0.5 text-xs hover:bg-secondary">Rename</button></p>
   }
@@ -24,7 +27,7 @@ function WorkspaceName() {
     setDraft(undefined)
     if (name && name !== workspace.name) void renameWorkspace(name)
   }
-  return <input aria-label="Workspace name" autoFocus value={draft} maxLength={120} onChange={(e) => setDraft(e.target.value)} onBlur={commit}
+  return <input aria-label="Case name" autoFocus value={draft} maxLength={120} onChange={(e) => setDraft(e.target.value)} onBlur={commit}
     onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setDraft(undefined) }}
     className="w-72 rounded-md border bg-card px-2 py-1 text-sm font-medium" />
 }
@@ -51,16 +54,29 @@ function ExportButton({ workspaceId, disabled }: { workspaceId: string; disabled
     {state.error && <span role="alert" className="max-w-56 truncate text-xs text-loss" title={state.error}>{state.error}</span>}</span>
 }
 
+/** The four steps of a decision, in order. Each is a real URL, so a step can be shared or reloaded. */
+function Stepper({ base }: { base: string }) {
+  const steps = [["Situation", base, true], ["Options", `${base}/simulator`, false], ["Compare", `${base}/board`, false], ["Recommend", `${base}/assistant`, false]] as const
+  return <nav aria-label="Decision steps" className="border-b bg-card/60">
+    <ol className="mx-auto flex max-w-[1480px] flex-wrap gap-1 px-5 py-2 md:px-8">
+      {steps.map(([label, to, end], i) => <li key={label}>
+        <NavLink to={to} end={end} className={({ isActive }) => `flex items-center gap-2 rounded-md px-3 py-1.5 text-sm ${isActive ? "bg-ink font-medium text-white" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}>
+          <span className="num text-xs opacity-70">{i + 1}</span>{label}</NavLink></li>)}
+    </ol>
+  </nav>
+}
+
 function WorkspaceFrame() {
-  const { workspaceId, status, assumptions, error, modelInfo, computeMs, notice, setNotice, saveState } = useWorkspace()
+  const { workspaceId, status, assumptions, error, modelInfo, computeMs, engineMs, notice, setNotice, saveState, assumptionsOpen, setAssumptionsOpen, assumptionFocus, agent, workspace } = useWorkspace()
   const location = useLocation()
   const navigate = useNavigate()
-  const showBuilder = /\/(simulator|board)$/.test(location.pathname)
+  const showBuilder = /\/simulator$/.test(location.pathname)
+  const onAssistantStep = /\/assistant$/.test(location.pathname)
 
-  if (status === "loading") return <main className="grid flex-1 place-items-center p-10 text-sm text-muted-foreground" role="status">Loading workspace…</main>
+  if (status === "loading") return <main className="grid flex-1 place-items-center p-10 text-sm text-muted-foreground" role="status">Loading case…</main>
   if (status === "notfound" || status === "failed") {
     return <main className="mx-auto grid w-full max-w-xl flex-1 place-content-center gap-3 px-5 py-24 text-center">
-      <h1 className="font-display text-3xl font-semibold">{status === "notfound" ? "Workspace not found" : "Couldn't open this workspace"}</h1>
+      <h1 className="font-display text-3xl font-semibold">{status === "notfound" ? "Case not found" : "Couldn't open this case"}</h1>
       <p className="text-muted-foreground">{status === "notfound" ? "It may have been archived or the link is wrong." : error}</p>
       <Link to="/" className="font-medium text-primary underline-offset-4 hover:underline">Back to the homepage</Link>
     </main>
@@ -73,15 +89,17 @@ function WorkspaceFrame() {
           <WorkspaceName />
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <span role="status" className={`text-xs ${saveState === "conflict" || saveState === "error" ? "text-loss" : "text-muted-foreground"}`}>{SAVE_LABEL[saveState]}</span>
-            <span className="hidden items-center gap-1.5 text-xs text-muted-foreground xl:flex"><span className={`size-2 rounded-full ${error ? "bg-loss" : "bg-gain"}`} />{error ? "Engine unreachable" : "Synthetic data, engine " + (modelInfo?.engine_version ?? "…")}</span>
+            <span className="hidden items-center gap-1.5 text-xs text-muted-foreground 2xl:flex"><span className={`size-2 rounded-full ${error ? "bg-loss" : "bg-gain"}`} />{error ? "Engine unreachable" : "Synthetic data, engine " + (modelInfo?.engine_version ?? "…")}</span>
+            {!onAssistantStep && <button type="button" onClick={() => agent.setOpen(true)} className="flex items-center gap-1.5 rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-white"><Bot className="size-4" aria-hidden="true" />Ask the assistant</button>}
             <ExportButton workspaceId={workspaceId} disabled={saveState !== "saved"} />
-            <AssumptionsDrawer assumptions={assumptions} />
+            <AssumptionsDrawer assumptions={assumptions} open={assumptionsOpen} onOpenChange={setAssumptionsOpen} focus={assumptionFocus} />
           </div>
         </div>
       </header>
+      <Stepper base={`/w/${workspaceId}`} />
 
       {notice && <div role="status" className="fixed bottom-14 left-1/2 z-30 flex -translate-x-1/2 items-center gap-4 rounded-lg bg-ink px-4 py-3 text-sm text-white shadow-lg">
-        <span>{notice}</span><button type="button" onClick={() => { navigate(`/w/${workspaceId}/board`); setNotice(undefined) }} className="rounded border border-white/40 px-2 py-1 text-xs font-medium hover:bg-white/10">Open comparison board</button></div>}
+        <span>{notice}</span><button type="button" onClick={() => { navigate(`/w/${workspaceId}/board`); setNotice(undefined) }} className="rounded border border-white/40 px-2 py-1 text-xs font-medium hover:bg-white/10">Open Compare</button></div>}
 
       <main className={`mx-auto grid w-full max-w-[1480px] flex-1 items-start gap-8 px-5 py-8 md:px-8 ${showBuilder ? "lg:grid-cols-[22rem_minmax(0,1fr)]" : ""}`}>
         {showBuilder && <ScenarioBuilder />}
@@ -90,12 +108,22 @@ function WorkspaceFrame() {
           <Outlet />
         </div>
       </main>
-      <AppFooter computeMs={computeMs} modelVersion={modelInfo?.engine_version} dataHash={modelInfo?.data_hash} />
+
+      <Sheet open={agent.open} onOpenChange={agent.setOpen}>
+        <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">
+          <SheetHeader>
+            <SheetTitle>Ask the assistant</SheetTitle>
+            <SheetDescription>{workspace?.name}. Every number is calculated by the engine and checked by an auditor.</SheetDescription>
+          </SheetHeader>
+          <div className="px-4 pb-8"><AgentPanel compact /></div>
+        </SheetContent>
+      </Sheet>
+      <AppFooter engineMs={engineMs} computeMs={computeMs} modelVersion={modelInfo?.engine_version} dataHash={modelInfo?.data_hash} />
     </>
   )
 }
 
-/** Route element for /w/:workspaceId: owns that workspace's state for all of its pages. */
+/** Route element for /w/:workspaceId: owns that case's state for all of its pages. */
 export function WorkspaceLayout() {
   const { workspaceId = "" } = useParams()
   return <WorkspaceProvider key={workspaceId} workspaceId={workspaceId}><WorkspaceFrame /></WorkspaceProvider>

@@ -11,11 +11,13 @@ import hashlib
 import json
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
+from functools import lru_cache
 
 from backend.assumptions.assumptions import SKU_IDS
 from backend.engine.scenario import Lever, Scenario
 
 
+@lru_cache(maxsize=65536)  # pure in (value, step); lever values repeat heavily across a batch
 def _quantize(value: float, step: str) -> int:
     return int((Decimal(str(value)) / Decimal(step)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
@@ -47,18 +49,28 @@ class ExpandedScenario:
     cost_shock: dict[str, int]  # tenths-of-percent
 
 
+def _quantize_lever(lever: Lever) -> QuantizedLever:
+    return QuantizedLever(
+        price_bp=quantize_price_bp(lever.price_index),
+        depth_pct=quantize_pct(lever.promo_depth_pct),
+        mechanic=lever.mechanic,
+        weeks_per_month=quantize_pct(lever.promo_weeks_per_month),
+    )
+
+
+_BASELINE_LEVER = _quantize_lever(Lever())  # frozen, so one shared instance is safe
+
+
 def expand_scenario(scenario: Scenario) -> ExpandedScenario:
     """Fills in every omitted SKU with the baseline (no-change) Lever and
     quantizes every value to an int, so hashing never sees a float."""
     levers = {}
     for sku in SKU_IDS:
-        lever = scenario.levers.get(sku, Lever())
-        levers[sku] = QuantizedLever(
-            price_bp=quantize_price_bp(lever.price_index),
-            depth_pct=quantize_pct(lever.promo_depth_pct),
-            mechanic=lever.mechanic,
-            weeks_per_month=quantize_pct(lever.promo_weeks_per_month),
-        )
+        lever = scenario.levers.get(sku)
+        if lever is None:  # omitted SKUs are the baseline lever; quantise it once, not per scenario
+            levers[sku] = _BASELINE_LEVER
+            continue
+        levers[sku] = _quantize_lever(lever)
     cost_shock = {
         "aluminium_pct": quantize_tenth_pct(scenario.cost_shock.aluminium_pct),
         "pet_resin_pct": quantize_tenth_pct(scenario.cost_shock.pet_resin_pct),
