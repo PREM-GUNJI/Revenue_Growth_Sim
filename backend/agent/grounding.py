@@ -1,4 +1,4 @@
-﻿"""Programmatic grounding check for numeric text in an agent answer."""
+"""Programmatic grounding check for numeric text in an agent answer."""
 
 from __future__ import annotations
 
@@ -36,7 +36,9 @@ _PACK_LABEL = _pack_label_pattern()
 
 def _rounded(value: str) -> Decimal | None:
     try:
-        return Decimal(value.replace(",", "").rstrip("%")).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+        return Decimal(value.replace(",", "").rstrip("%")).quantize(
+            Decimal("0.1"), rounding=ROUND_HALF_UP
+        )
     except InvalidOperation:
         return None
 
@@ -46,15 +48,26 @@ def _evidence_numbers(value: Any, key: str = "") -> list[Decimal]:
         return []
     if isinstance(value, (int, float, Decimal)):
         item = _rounded(str(value))
-        return [item] if item is not None else []
+        if item is None:
+            return []
+        # Prose may round to whole units (₹30,898 for 30,897.7); that is rounding, not a new number.
+        return [item, item.quantize(Decimal("1"), rounding=ROUND_HALF_UP).quantize(Decimal("0.1"))]
     if isinstance(value, str):
         if key == "result_hash" or re.fullmatch(r"[0-9a-f]{32,}", value):
             return []
         if "reason" in key or "message" in key or re.fullmatch(r"[+-]?\d[\d,.]*%?", value.strip()):
-            return [number for token in _NUMBER.findall(value) if (number := _rounded(token)) is not None]
+            return [
+                number
+                for token in _NUMBER.findall(value)
+                if (number := _rounded(token)) is not None
+            ]
         return []
     if isinstance(value, dict):
-        return [number for name, child in value.items() for number in _evidence_numbers(child, str(name))]
+        return [
+            number
+            for name, child in value.items()
+            for number in _evidence_numbers(child, str(name))
+        ]
     if isinstance(value, (list, tuple)):
         return [number for child in value for number in _evidence_numbers(child, key)]
     return []

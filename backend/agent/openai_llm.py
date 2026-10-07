@@ -58,10 +58,16 @@ class OpenAILLM:
             )
         except Exception as exc:
             if isinstance(exc, ValidationError):
-                raise OpenAILLMError("OpenAI returned a plan or answer that did not match the expected schema") from exc
+                raise OpenAILLMError(
+                    "OpenAI returned a plan or answer that did not match the expected schema"
+                ) from exc
             # Class and HTTP status only: provider messages can echo parts of the API key.
             status = getattr(exc, "status_code", None)
-            raise OpenAILLMError("OpenAI request failed: " + type(exc).__name__ + (f" (HTTP {status})" if status else "")) from exc
+            raise OpenAILLMError(
+                "OpenAI request failed: "
+                + type(exc).__name__
+                + (f" (HTTP {status})" if status else "")
+            ) from exc
         self._record_usage(response)
         parsed = response.output_parsed
         if parsed is None:
@@ -152,7 +158,18 @@ class OpenAILLM:
             "synthetic consumer research only proposed candidate prices: cite a candidate price as a Modeled claim on the "
             "research tool call with its research_id and a path like 'candidates.0.price', cite its commercial outcome on "
             "the evaluation call, and never recommend on research evidence alone. Avoid unsupported "
-            "numbers in summary, recommendations, refusals, or caveats. Return only the typed answer.",
+            "numbers in summary, recommendations, refusals, or caveats. "
+            "WRITING STYLE (the reader is a commercial manager, not an analyst): write plain, short sentences. "
+            "Never put tool call ids, field paths (like '2.focal_bridge.promo'), assumption ids or claim ids in the "
+            "summary, recommendations, refusals, caveats or claim text; those belong only in the claim's evidence "
+            "fields. Write rupees as whole numbers with the ₹ symbol and thousands separators, e.g. ₹30,898 a week, "
+            "never 'INR' or long decimals. Say 'promotion', 'price cut' and 'cost of goods' rather than internal field "
+            "names like 'bridge', 'promo funding' or 'cogs'. Summary: a one-sentence answer first (which option is "
+            "best and why), then at most four short bullet lines starting '- ', one per option compared, each stating "
+            "the weekly gross profit and the main reason it is higher or lower than baseline. Recommendations: one "
+            "plain sentence each, starting with the action, with no 'R1 (based on M1)' prefixes or trailing '(M1)' "
+            "tags. Mention a refused option once, in refusals, in plain words after the verbatim reason. Put the "
+            "shared-assumptions note in caveats as one sentence. Return only the typed answer.",
             {
                 "goal": goal[:4000],
                 "plan": plan.model_dump(mode="json"),
