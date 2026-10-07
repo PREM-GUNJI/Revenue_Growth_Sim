@@ -430,18 +430,20 @@ _MSI_URL = "https://www.msi.org/working-paper/observational-price-variation-in-s
 _PROMO_URL = "https://www.tellius.com/cpg/trade-promotion-analytics"
 
 _REF_ELASTICITY = (
-    "Context only, not a fitted value. Published scanner-data studies report a wide spread of soft-drink "
-    f"own-price elasticities, with household scanner data tending to be more elastic ({_ELASTICITY_URL}). "
-    f"Observational elasticities can also differ from experimental ones ({_MSI_URL}), so the value carries "
-    "a range that drives the sensitivity bands."
+    "Context only, not a fitted value. A 2024 meta-analysis of U.S. food demand elasticities (Jeon, Hoang, Thompson "
+    f"and Abler) finds household scanner data tends to give more elastic own-price estimates ({_ELASTICITY_URL}). "
+    "It does not cover soft drinks specifically, so the values here are illustrative. A Marketing Science Institute "
+    "working paper (Bray, Sanders and Stamatopoulos) finds observational scanner price variation does not reproduce "
+    f"experimental elasticities ({_MSI_URL}), so the value carries a range that drives the sensitivity bands."
 )
 _REF_CROSS = (
     "Modelling choice; no public source gives brand-pair cross elasticities for this synthetic market. "
     f"Same caution on observational estimates as the own-price values ({_MSI_URL})."
 )
 _REF_PROMO = (
-    "Modelling choice. Promotion lift measured against a baseline, with pull-forward and cannibalisation, "
-    f"is standard trade-promotion analytics practice ({_PROMO_URL}); the values here are illustrative."
+    "Modelling choice. A vendor page (Tellius, marketing material, not research) describes the same concepts the "
+    f"engine mirrors: lift against a baseline, pull-forward and cannibalisation ({_PROMO_URL}). "
+    "The values here are illustrative."
 )
 _REF_COST = (
     "Synthetic illustrative figure. Public retail scanner data does not carry a manufacturer's cost structure, "
