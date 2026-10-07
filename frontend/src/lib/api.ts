@@ -253,3 +253,24 @@ export function getSensitivity(scenarios: ApiScenario[], seed = 42) { return pos
 export interface GoalSeekResult { max_volume_loss_pct: number; baseline_gp: number; evaluated: number; feasible: number
   top: Array<{ scenario: ApiScenario; scenario_id: string; portfolio_gp: number; gp_change: number; volume_loss_pct: number }> }
 export function goalSeek(max_volume_loss_pct: number, top = 5) { return post<GoalSeekResult>("/scenarios/goal-seek", { max_volume_loss_pct, top }) }
+
+// Customer personas: an LLM designs the mix; the seeded generator makes the respondents; reactions are illustrative.
+export interface PackMix { can_330ml: number; pet_500ml: number; bottle_1500ml: number; multipack_6x330ml: number }
+export interface PersonaSpec { name: string; description: string; share: number; price_sensitivity: number; promotion_sensitivity: number; pack_mix: PackMix }
+export interface PersonaMix { personas: PersonaSpec[]; note: string }
+export interface PersonaDesign { label: string; mix: PersonaMix; mix_hash: string; trace_id: string; model_id: string }
+export interface PersonaReport {
+  label: string; pack: string; mix_hash: string; data_hash: string; sample_size: number
+  personas: Array<{ name: string; description: string; share: number; respondents: number; price_sensitivity: number; promotion_sensitivity: number
+    wtp: Record<string, number> | null; acceptance_by_price: Record<string, number> | null }>
+}
+export interface PersonaVoicesResult {
+  label: string; model_id: string; trace_id: string
+  voices: Array<{ persona: string; quote: string; objections: string[]; would_change_mind: string }>
+}
+export function designPersonas(brief: string) { return post<PersonaDesign>("/pricing/personas/design", { brief }) }
+export function personaReport(mix: PersonaMix, pack: string, seed = 42) { return post<PersonaReport>("/pricing/personas/report", { mix, pack, seed }) }
+export function personaVoices(mix: PersonaMix, pack: string, price: number, seed = 42) { return post<PersonaVoicesResult>("/pricing/personas/voices", { mix, pack, price, seed }) }
+export function personaCandidates(mix: PersonaMix, methodology: string, pack: string, seed = 42) {
+  return post<ResearchBridgeResponse>("/pricing/research-to-scenarios", { methodology, pack, seed, personas: mix })
+}

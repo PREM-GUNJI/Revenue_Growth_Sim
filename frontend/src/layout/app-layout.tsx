@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Link, NavLink, Outlet, useLocation, useMatch } from "react-router-dom"
-import { Bot, ChartColumn, GitCompareArrows, History, House, LayoutDashboard, LogOut, Menu, ScrollText, SlidersHorizontal, Sparkles, X } from "lucide-react"
+import { Bot, ChartColumn, GitCompareArrows, History, House, LayoutDashboard, LogOut, Menu, ScrollText, SlidersHorizontal, Sparkles, Users, X } from "lucide-react"
 import c5iLogo from "@/assets/c5i-logo.png"
 import type { AuthUser } from "@/lib/auth"
 
@@ -39,6 +39,7 @@ export function AppLayout({ user, onSignOut }: { user: AuthUser; onSignOut: () =
   const evidenceItems: Item[] = base ? [
     { to: `${base}/evidence`, label: "Pricing evidence", icon: ChartColumn },
     { to: `${base}/conjoint`, label: "Conjoint simulation", icon: Sparkles },
+    { to: `${base}/personas`, label: "Customer personas", icon: Users },
   ] : []
 
   const governanceItems: Item[] = [

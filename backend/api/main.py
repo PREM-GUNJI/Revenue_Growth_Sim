@@ -15,10 +15,10 @@ from uuid import uuid4
 from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.encoders import jsonable_encoder
 
-from backend.agent.tools import ToolError
-from backend.analysis import goal_seek, sensitivity
 from backend.agent.openai_llm import OpenAILLM, OpenAILLMError
 from backend.agent.orchestrator import AgentOrchestrator
+from backend.agent.tools import ToolError
+from backend.analysis import goal_seek, sensitivity
 from backend.api.schemas import (
     AgentRunIn,
     AssumptionOut,
@@ -29,6 +29,9 @@ from backend.api.schemas import (
     ExportIn,
     GoalSeekIn,
     ImportIn,
+    PersonaDesignIn,
+    PersonaReportIn,
+    PersonaVoicesIn,
     ResearchIn,
     ResearchToScenariosIn,
     ScenarioIn,
@@ -59,6 +62,13 @@ from backend.research.evidence import (
     run_research,
     summarize_consumers,
 )
+from backend.research.personas import (
+    DESIGN_LABEL,
+    PersonaError,
+    design_mix,
+    persona_report,
+    voice_personas,
+)
 from backend.situation import router as situation_router
 from backend.workspaces import router as workspaces_router
 
@@ -80,19 +90,63 @@ async def pricing_methodologies() -> dict:
 
 @app.post("/pricing/consumer-evidence")
 async def consumer_evidence(request: ConsumerEvidenceIn) -> dict:
-    return generate_consumers(request.seed, request.sample_size)
+    return generate_consumers(request.seed, request.sample_size, request.personas)
 
 
 @app.post("/pricing/consumer-summary")
 async def consumer_summary(request: ConsumerEvidenceIn) -> dict:
-    return summarize_consumers(generate_consumers(request.seed, request.sample_size))
+    return summarize_consumers(generate_consumers(request.seed, request.sample_size, request.personas))
 
 
 @app.post("/pricing/research")
 async def pricing_research(request: ResearchIn) -> dict:
-    evidence = generate_consumers(request.seed, request.sample_size)
+    evidence = generate_consumers(request.seed, request.sample_size, request.personas)
     result = run_research(request.methodology, evidence, request.prices or None, request.pack)
     return {**asdict(result), "label": LABEL}
+
+
+def get_persona_llm() -> OpenAILLM:
+    """The real model. Tests replace this with a scripted stand-in."""
+    return OpenAILLM()
+
+
+def _persona_call(user: CurrentUser, label: str, work):
+    trace_id = uuid4().hex
+    llm = None
+    try:
+        llm = get_persona_llm()
+        return {"trace_id": trace_id, "model_id": llm.model_id, **work(llm)}
+    except OpenAILLMError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except PersonaError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        if llm is not None:  # tokens are spent even when the result is rejected
+            record_agent_usage(user.email, None, trace_id, llm, label)
+
+
+@app.post("/pricing/personas/design")
+def personas_design(request: PersonaDesignIn, user: CurrentUser) -> dict:
+    """The model proposes a persona mix. It is validated, never repaired; the numbers come later from the seeded generator."""
+    def work(llm):
+        mix = design_mix(llm, request.brief)
+        return {"label": DESIGN_LABEL, "mix": mix.normalised().model_dump(mode="json"), "mix_hash": mix.mix_hash()}
+    return _persona_call(user, "persona design: " + request.brief[:150], work)
+
+
+@app.post("/pricing/personas/report")
+def personas_report(request: PersonaReportIn) -> dict:
+    consumers = generate_consumers(request.seed, request.sample_size, request.mix)
+    return persona_report(consumers, request.mix, request.pack, request.prices or None)
+
+
+@app.post("/pricing/personas/voices")
+def personas_voices(request: PersonaVoicesIn, user: CurrentUser) -> dict:
+    """Illustrative first-person reactions. Numbers in them must already be in the evidence; they feed no calculation."""
+    # Acceptance is computed at exactly the price asked about, so a quote never leans on a nearby tested price.
+    report = persona_report(generate_consumers(request.seed, request.sample_size, request.mix), request.mix,
+                            request.pack, [request.price])
+    return _persona_call(user, f"persona voices at {request.price:g}", lambda llm: voice_personas(llm, report, request.price))
 
 
 @app.get("/pricing/conjoint/defaults")
@@ -103,7 +157,7 @@ async def pricing_conjoint_defaults() -> dict:
 @app.post("/pricing/conjoint")
 async def pricing_conjoint(request: ConjointIn) -> dict:
     try:
-        result = conjoint_simulation(generate_consumers(request.seed, request.sample_size),
+        result = conjoint_simulation(generate_consumers(request.seed, request.sample_size, request.personas),
                                      request.alternatives, request.utilities, request.focus_brand)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -112,7 +166,7 @@ async def pricing_conjoint(request: ConjointIn) -> dict:
 
 @app.post("/pricing/research-to-scenarios")
 async def research_candidates(request: ResearchToScenariosIn) -> dict:
-    evidence = generate_consumers(request.seed, request.sample_size)
+    evidence = generate_consumers(request.seed, request.sample_size, request.personas)
     result = run_research(request.methodology, evidence, request.prices or None, request.pack)
     return {"research": asdict(result), "label": LABEL, "scenarios": research_to_scenarios(
         result, request.brand, request.promotion_depth_pct)}
@@ -121,7 +175,7 @@ async def research_candidates(request: ResearchToScenariosIn) -> dict:
 @app.post("/pricing/conjoint-to-scenarios")
 async def conjoint_candidates(request: ConjointToScenariosIn) -> dict:
     try:
-        result = conjoint_simulation(generate_consumers(request.seed, request.sample_size),
+        result = conjoint_simulation(generate_consumers(request.seed, request.sample_size, request.personas),
                                      request.alternatives, request.utilities, request.focus_brand)
         scenarios = research_to_scenarios(result, request.focus_brand)
     except ValueError as exc:

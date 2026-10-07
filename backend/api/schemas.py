@@ -5,6 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from backend.engine.scenario import Scenario
+from backend.research.personas import PersonaMix
 
 
 class AssumptionOut(BaseModel):
@@ -55,6 +56,7 @@ class AgentRunIn(BaseModel):
 
 
 class ConsumerEvidenceIn(BaseModel):
+    personas: PersonaMix | None = None  # None -> the registry's default segments
     seed: int = Field(default=42, ge=0)
     sample_size: int | None = Field(default=None, ge=1, le=10000)  # None -> registry A-026
 
@@ -89,3 +91,19 @@ class GoalSeekIn(BaseModel):
     max_volume_loss_pct: float = Field(default=5.0, ge=0, le=100)
     sku_ids: list[str] | None = None
     top: int = Field(default=5, ge=1, le=20)
+
+
+class PersonaDesignIn(BaseModel):
+    brief: str = Field(min_length=3, max_length=1000)
+
+
+class PersonaReportIn(BaseModel):
+    mix: PersonaMix
+    seed: int = Field(default=42, ge=0)
+    sample_size: int | None = Field(default=None, ge=1, le=10000)
+    pack: str = Field(default="pet_500ml", pattern="^(can_330ml|pet_500ml|bottle_1500ml|multipack_6x330ml)$")
+    prices: list[float] = Field(default_factory=list, max_length=100)
+
+
+class PersonaVoicesIn(PersonaReportIn):
+    price: float = Field(gt=0, le=10000)

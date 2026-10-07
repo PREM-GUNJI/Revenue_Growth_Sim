@@ -59,37 +59,37 @@ def default_sample_size() -> int:
     return int(registry.get("A-026").value)
 
 
-def generate_consumers(seed: int = 42, sample_size: int | None = None) -> dict:
-    """Create synthetic, non-PII respondents and comments from fixed distributions."""
+def generate_consumers(seed: int = 42, sample_size: int | None = None, mix: Any = None) -> dict:
+    """Create synthetic, non-PII respondents and comments from fixed distributions.
+
+    `mix` is an optional validated PersonaMix (backend.research.personas). Without it the output is
+    exactly the registry's four default segments; with it, respondents are drawn from the persona
+    parameters instead. Same seed and mix always give the same respondents.
+    """
     sample_size = default_sample_size() if sample_size is None else sample_size
     low, high = registry.get("A-026").valid_range
     if not low <= sample_size <= high:
         raise ValueError(f"sample_size must be between {int(low)} and {int(high)}")
     rng = np.random.default_rng(seed)
     segments = GEN["segments"]
+    personas = None if mix is None else mix.normalised().personas
+    assigned = [0] * len(personas or [])
     rows = []
     for i in range(sample_size):
-        segment = segments[i % len(segments)]
-        price_sens = float(
-            np.clip(
-                rng.normal(
-                    GEN["price_sensitivity_mean"][segment], GEN["sensitivity_sigma"]["price"]
-                ),
-                0,
-                1,
-            )
-        )
-        promo_sens = float(
-            np.clip(
-                rng.normal(
-                    GEN["promotion_sensitivity_mean"][segment],
-                    GEN["sensitivity_sigma"]["promotion"],
-                ),
-                0,
-                1,
-            )
-        )
-        pack = str(rng.choice(FORMATS, p=GEN["pack_mix"]))
+        if personas is None:
+            segment = segments[i % len(segments)]
+            price_mean = GEN["price_sensitivity_mean"][segment]
+            promo_mean = GEN["promotion_sensitivity_mean"][segment]
+            pack_p = GEN["pack_mix"]
+        else:  # smooth weighted interleave: the persona furthest below its share goes next
+            pick = max(range(len(personas)), key=lambda k: (personas[k].share * (i + 1) - assigned[k], -k))
+            assigned[pick] += 1
+            persona = personas[pick]
+            segment, price_mean, promo_mean = persona.name, persona.price_sensitivity, persona.promotion_sensitivity
+            pack_p = [getattr(persona.pack_mix, f) for f in FORMATS]
+        price_sens = float(np.clip(rng.normal(price_mean, GEN["sensitivity_sigma"]["price"]), 0, 1))
+        promo_sens = float(np.clip(rng.normal(promo_mean, GEN["sensitivity_sigma"]["promotion"]), 0, 1))
+        pack = str(rng.choice(FORMATS, p=pack_p))
         current_price = reference_price(pack)
         wtp = round(
             current_price
@@ -140,20 +140,23 @@ def generate_consumers(seed: int = 42, sample_size: int | None = None) -> dict:
                 "comment": comment,
             }
         )
-    return {
+    out = {
         "label": LABEL,
         "seed": seed,
         "sample_size": sample_size,
         "respondents": rows,
         "data_hash": _hash(rows),
     }
+    if mix is not None:
+        out["mix_hash"] = mix.mix_hash()
+    return out
 
 
 def summarize_consumers(consumers: dict, comment_sample: int = 5) -> dict:
     """Compact, fully numeric summary (what the agent sees instead of every row)."""
     rows = consumers["respondents"]
     segments: dict[str, dict] = {}
-    for name in GEN["segments"]:
+    for name in dict.fromkeys(r["segment"] for r in rows):  # appearance order = default segment order
         part = [r for r in rows if r["segment"] == name]
         if part:
             segments[name] = {
@@ -439,8 +442,7 @@ def conjoint_simulation(
             round(float(x) * 100, 2)
             for x in probability[[r["segment"] == name for r in rows]].mean(axis=0)
         ]
-        for name in GEN["segments"]
-        if any(r["segment"] == name for r in rows)
+        for name in dict.fromkeys(r["segment"] for r in rows)
     }
     pct = [round(float(x) * 100, 2) for x in shares]
     candidates = sorted(

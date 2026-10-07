@@ -7,6 +7,7 @@ import { AssistantPage } from "@/pages/assistant-page"
 import { AuditPage } from "@/pages/audit-page"
 import { BoardPage } from "@/pages/board-page"
 import { ConjointPage } from "@/pages/conjoint-page"
+import { PersonasPage } from "@/pages/personas-page"
 import { EvidencePage } from "@/pages/evidence-page"
 import { HomePage } from "@/pages/home-page"
 import { SimulatorPage } from "@/pages/simulator-page"
@@ -37,6 +38,7 @@ function App({ user, onSignOut }: { user: AuthUser; onSignOut: () => void }) {
               <Route path="assistant" element={<AssistantPage />} />
               <Route path="evidence" element={<EvidencePage />} />
               <Route path="conjoint" element={<ConjointPage />} />
+              <Route path="personas" element={<PersonasPage />} />
             </Route>
             <Route path="agent-runs" element={<AgentRunsPage />} />
             <Route path="agent-runs/:traceId" element={<AgentRunDetailPage />} />
