@@ -23,8 +23,11 @@ from backend.db import User
 from backend.migrations.runner import upgrade_database
 
 ROOT = Path(__file__).resolve().parents[2]
-API_URL = "http://127.0.0.1:8000/healthz"
-UI_URL = "http://127.0.0.1:5173"
+# Overridable so the smoke test can run beside a developer's own servers on the default ports.
+API_PORT = int(os.environ.get("E2E_API_PORT", "8000"))
+UI_PORT = int(os.environ.get("E2E_UI_PORT", "5173"))
+API_URL = f"http://127.0.0.1:{API_PORT}/healthz"
+UI_URL = f"http://127.0.0.1:{UI_PORT}"
 TEST_EMAIL, TEST_PASSWORD = "e2e@example.com", "e2e-password-1"
 VIEWER_EMAIL = "viewer@example.com"
 
@@ -69,7 +72,7 @@ def require_free_port(port: int) -> None:
 
 @pytest.fixture(scope="module")
 def ui_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    for port in (8000, 5173):
+    for port in (API_PORT, UI_PORT):
         require_free_port(port)
     # The API under test gets its own throwaway database so no test user ever lands in a real one.
     database_url = f"sqlite:///{tmp_path_factory.mktemp('e2e') / 'e2e.db'}"
@@ -85,16 +88,16 @@ def ui_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     env = os.environ.copy()
     env["DATABASE_URL"] = database_url
     env["AUTH_SECRET_KEY"] = "e2e-secret-key"
-    env["VITE_API_TARGET"] = "http://127.0.0.1:8000"
+    env["VITE_API_TARGET"] = f"http://127.0.0.1:{API_PORT}"
     api = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "backend.api.main:app", "--host", "127.0.0.1", "--port", "8000"],
+        [sys.executable, "-m", "uvicorn", "backend.api.main:app", "--host", "127.0.0.1", "--port", str(API_PORT)],
         cwd=ROOT,
         env=env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.STDOUT,
     )
     ui = subprocess.Popen(
-        ["npm.cmd", "run", "dev", "--", "--host", "127.0.0.1", "--port", "5173", "--strictPort"],
+        ["npm.cmd", "run", "dev", "--", "--host", "127.0.0.1", "--port", str(UI_PORT), "--strictPort"],
         cwd=ROOT / "frontend",
         env=env,
         stdout=subprocess.DEVNULL,
@@ -196,4 +199,50 @@ def test_hub_audit_export_and_sign_out(ui_url: str) -> None:
         page.get_by_label("Email address").wait_for()
         page.goto(ui_url + "/audit", wait_until="networkidle")
         page.get_by_label("Email address").wait_for()
+        browser.close()
+
+
+def test_take_price_template_shows_a_loser_and_a_refusal(ui_url: str) -> None:
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        page = browser.new_page()
+        sign_in(page, ui_url)
+        page.get_by_role("button", name="New case").click()
+        page.get_by_role("radio", name=re.compile("Should we take price")).check()
+        page.get_by_label("Pack", exact=True).select_option("bottle_1500ml")
+        # The template fills the name and question; the user can still change them.
+        assert page.get_by_label("Name", exact=True).input_value() == "Price rise on the 1.5 L"
+        assert "1.5 L bottle" in page.get_by_label("Business question", exact=False).input_value()
+        page.get_by_role("button", name="Create case").click()
+        page.get_by_role("heading", name="Where Aurora stands today").wait_for(timeout=30_000)
+        page.get_by_role("link", name=re.compile("Compare")).first.click()
+        page.wait_for_url("**/board")
+        page.get_by_text("worse than baseline", exact=False).first.wait_for(timeout=30_000)
+        page.get_by_text("1.5 L +50%").first.wait_for()
+        assert page.get_by_text("REFUSED", exact=False).count() >= 1
+        browser.close()
+
+
+def test_viewer_reads_the_brief_but_cannot_edit(ui_url: str) -> None:
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        page = browser.new_page()
+        page.goto(ui_url, wait_until="networkidle")
+        page.get_by_label("Email address").fill(VIEWER_EMAIL)
+        page.get_by_label("Password", exact=True).fill(TEST_PASSWORD)
+        page.get_by_role("button", name="Sign In").click()
+        page.get_by_role("heading", name="Cases").wait_for(timeout=30_000)
+        page.get_by_role("heading", name="E2E case").wait_for()
+        assert page.get_by_role("button", name="New case").count() == 0
+        assert page.get_by_role("link", name="Audit and AI usage").count() == 0
+
+        page.get_by_role("link", name="Open brief").first.click()
+        page.wait_for_url("**/executive")
+        page.get_by_role("region", name="Recommendation").wait_for(timeout=30_000)
+        assert page.get_by_role("link", name=re.compile("workbench", re.IGNORECASE)).count() == 0
+        assert page.get_by_role("button", name="Export deck").count() == 1
+
+        # A viewer who deep-links to the workbench is sent back to the brief.
+        page.goto(page.url.replace("/executive", "/board"), wait_until="networkidle")
+        page.wait_for_url("**/executive")
         browser.close()

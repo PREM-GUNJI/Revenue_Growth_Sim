@@ -48,13 +48,34 @@ The app requires sign-in (ADR-014). Users live in the `users` table; create or r
 ```powershell
 python -m backend.dbsetup                      # applies migrations, including 002_users
 python -m backend.auth_users someone@c5i.ai    # prompts for a password, stores only its Argon2 hash
+python -m backend.auth_users boss@c5i.ai --role viewer   # roles: viewer, analyst (default), admin
 ```
+
+Roles are enforced by the API, not just hidden in the UI (ADR-017):
+
+- **Viewer** reads cases and their executive brief, and can export the deck and brief. They cannot create or edit cases, run the assistant, or run research.
+- **Analyst** does everything a viewer can, and can also create and edit cases, run the assistant and use customer evidence.
+- **Admin** does everything an analyst can, plus the governance pages (**Audit and AI usage**, **Agent runs**).
+
+Re-running the command without `--role` keeps an existing user's role.
 
 Set `AUTH_SECRET_KEY` (see `.env.example`) for any shared deployment, and `AUTH_COOKIE_SECURE=1` behind HTTPS.
 
 ## Cases and the decision flow
 
-After signing in, `/` lists **cases**: shared, autosaved scenario sets (with conflict protection), each with a business question. A case has four steps, each a real URL:
+After signing in, `/` lists **cases**: shared, autosaved scenario sets (with conflict protection), each with a business question. A new case starts from a question template:
+
+- **Costs are rising**: you enter the input-cost increase. Every option carries that cost, and each one is measured against "absorb the cost".
+- **Should we take price?** and **Is this promotion worth it?**: you pick a pack.
+- **Move shoppers to bigger packs**.
+- **Example case**.
+- **Blank**.
+
+Every question template starts with one option that loses profit and one outside the data, which the engine refuses with no numbers. The engine calculates every figure.
+
+The screens use plain language by default. **Show technical details** (under your name in the sidebar) adds scenario IDs, assumption IDs, price indices, P10/P90 and audit traces. **Advanced research** shows the synthetic customer-evidence pages.
+
+A case has four steps, each a real URL:
 
 1. **Situation**: where the focal brand (Aurora) stands today, per typical week in INR. A baseline P&L by pack (units, revenue, trade terms, net sales, unit costs, gross profit, margin), observed price gaps to Boreal and Comet and promotion history, and engine probes of a 3% price rise, a 10% promotion and an 8% input-cost shock. Every section is labelled Observed, Modeled or Assumed.
 2. **Options**: build price, pack and promotion scenarios. Each slider shows where the engine has data; past that it refuses and shows no numbers.

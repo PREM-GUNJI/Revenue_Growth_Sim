@@ -142,7 +142,7 @@ function NewWorkspaceForm({ onCancel }: { onCancel?: () => void }) {
       </fieldset>
       {template.needs.length > 0 && <div className="flex flex-wrap gap-4 text-sm">
         {template.needs.includes("pack") && <label className="font-medium">Pack
-          <select value={input.pack} onChange={(e) => setInput({ ...input, pack: e.target.value })} className="mt-1 block rounded-md border bg-background px-3 py-2 font-normal">
+          <select aria-label="Pack" value={input.pack} onChange={(e) => setInput({ ...input, pack: e.target.value })} className="mt-1 block rounded-md border bg-background px-3 py-2 font-normal">
             {PACKS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
           </select></label>}
         {template.needs.includes("cost") && <label className="font-medium">Input cost increase (%)

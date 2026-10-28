@@ -108,7 +108,7 @@ export function ComparisonBoard({ scenarios, onUseNearest, volumeGuardrailPct, o
                 {s.isBaseline && <span className={`${chip} bg-secondary`}>Baseline</span>}
                 {s === winner && <span className={`${chip} bg-gain/15 font-medium text-gain`}>Winning candidate</span>}
                 {s.status === "EDGE" && <span className={`${chip} bg-edge/15 font-medium text-edge`}>Edge of data</span>}
-                {loser && <span className={`${chip} bg-loss/10 font-medium text-loss`}>Loses: {why(s)}</span>}
+                {loser && <span className={`${chip} bg-loss/10 font-medium text-loss`}>Worse than baseline: {why(s)}</span>}
                 {breaches(s) && <span className={`${chip} bg-loss/10 font-medium text-loss`}>{why(s)}</span>}
                 {s.source && <span className={`${chip} bg-edge/10 text-edge`}>From {s.source.methodology.split(" (")[0]} study</span>}
               </div>
