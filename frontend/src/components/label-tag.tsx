@@ -1,18 +1,13 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { MEANING, type ClaimLabel } from "@/lib/claim-labels"
 
-export type ClaimLabel = "Observed" | "Modeled" | "Assumed" | "Recommended"
+export type { ClaimLabel }
 
 const STYLE: Record<ClaimLabel, string> = {
   Observed: "bg-edge/10 text-edge",
   Modeled: "bg-ink/10 text-foreground",
   Assumed: "bg-primary/10 text-primary",
   Recommended: "border border-primary/40 text-primary",
-}
-const MEANING: Record<ClaimLabel, string> = {
-  Observed: "Read straight from the synthetic sales history.",
-  Modeled: "Calculated by the deterministic engine from documented assumptions.",
-  Assumed: "A documented assumption in the registry, not measured.",
-  Recommended: "A suggestion that rests on a modeled result.",
 }
 
 /** The four claim labels from the project rules: every figure on screen says where it comes from. */

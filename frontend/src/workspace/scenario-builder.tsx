@@ -1,19 +1,23 @@
 import { SupportBar } from "@/components/support-bar"
-import { PACKS, baselineLever, packOf, packShort, signed, skuFor } from "@/lib/catalog"
+import { PACKS, baselineLever, inr, packOf, packShort, signed, skuFor } from "@/lib/catalog"
+import { useDetailMode } from "@/lib/preferences"
 import { useWorkspace } from "./workspace-context"
 
 const PRICE_MIN = 0.8, PRICE_MAX = 1.6, DEPTH_MAX = 50
 
 export function ScenarioBuilder() {
-  const { scenarios, setScenarios, activePack, setActivePack, addScenario, updateLever, envelope } = useWorkspace()
+  const { scenarios, setScenarios, activePack, setActivePack, addScenario, updateLever, envelope, situation } = useWorkspace()
+  const [detail] = useDetailMode()
   const sku = skuFor(activePack)
+  const ref = situation?.skus.find((s) => s.sku_id === sku)?.price
+  const price = (index: number) => ref === undefined ? `${signed((index - 1) * 100, 0)} on today's price` : inr(ref * index)
   // Where the engine has data for this pack: price between the 1st and 99th percentile of history, promotion at observed depths.
   const [priceLo, priceHi] = envelope?.price_index_p1_p99[sku] ?? [PRICE_MIN, PRICE_MAX]
   const depthHi = envelope ? Math.max(...envelope.depth_steps) : DEPTH_MAX
   const mechanics = (envelope?.mechanics ?? ["TPR", "feature_display", "BOGO"]).filter((m) => m !== "none")
   return (
     <aside className="space-y-4 lg:sticky lg:top-24 lg:max-h-[calc(100svh-7rem)] lg:overflow-y-auto lg:pr-1" aria-label="Scenario builder">
-      <div><h2 className="font-display text-xl font-semibold">Options</h2><p className="text-sm text-muted-foreground">Pick a pack and set its price and promotion. The green part of each slider is where the engine has data; past it the engine refuses and shows no numbers.</p></div>
+      <div><h2 className="font-display text-xl font-semibold">Options</h2><p className="text-sm text-muted-foreground">Pick a pack and set its price and promotion. The green part of each slider is where we have data; past it we won't guess, so there are no numbers.</p></div>
       <div role="group" aria-label="Pack to edit" className="grid grid-cols-4 gap-1 rounded-lg bg-secondary p-1">
         {PACKS.map((p) => <button key={p.id} type="button" aria-pressed={activePack === p.id} onClick={() => setActivePack(p.id)} className={`rounded-md py-1.5 text-xs ${activePack === p.id ? "bg-ink font-medium text-white" : "hover:bg-card"}`}>{p.short}</button>)}
       </div>
@@ -29,10 +33,10 @@ export function ScenarioBuilder() {
             {index > 0 && <button type="button" onClick={() => setScenarios((current) => current.filter((_, i) => i !== index))} className="rounded px-1.5 py-1 text-xs text-loss hover:bg-loss/10">Remove</button>}
           </div>
           {index === 0 ? <p className="px-1 text-xs text-muted-foreground">Current price, no promotion. Every other scenario is measured against this one.</p> : <>
-            <label className="block text-xs text-muted-foreground"><span className="flex justify-between"><span>Price index, {packShort(activePack)}</span><span className="num text-sm font-semibold text-foreground">{lever.price_index.toFixed(2)} <span className="font-normal text-muted-foreground">({signed((lever.price_index - 1) * 100, 0)})</span></span></span>
-              <input aria-label="Price index" type="range" min={PRICE_MIN} max={PRICE_MAX} step="0.01" value={lever.price_index} onChange={(event) => updateLever(index, { price_index: Number(event.target.value) })} />
+            <label className="block text-xs text-muted-foreground"><span className="flex justify-between"><span>Shelf price, {packShort(activePack)}</span><span className="num text-sm font-semibold text-foreground">{price(lever.price_index)} <span className="font-normal text-muted-foreground">({signed((lever.price_index - 1) * 100, 0)})</span></span></span>
+              <input aria-label="Shelf price" type="range" min={PRICE_MIN} max={PRICE_MAX} step="0.01" value={lever.price_index} onChange={(event) => updateLever(index, { price_index: Number(event.target.value) })} />
               <SupportBar min={PRICE_MIN} max={PRICE_MAX} lo={priceLo} hi={priceHi} />
-              <span className="mt-0.5 block">Supported {priceLo.toFixed(2)} to {priceHi.toFixed(2)}</span></label>
+              <span className="mt-0.5 block">We have data between {price(priceLo)} and {price(priceHi)}{detail && ` (price index ${priceLo.toFixed(2)} to ${priceHi.toFixed(2)})`}</span></label>
             <label className="block text-xs text-muted-foreground"><span className="flex justify-between"><span>Promo depth, {packShort(activePack)}</span><span className="num text-sm font-semibold text-foreground">{lever.promo_depth_pct}%</span></span>
               <input aria-label="Promo depth" type="range" min="0" max={DEPTH_MAX} step="5" value={lever.promo_depth_pct} onChange={(event) => {
                 const depth = Number(event.target.value)
@@ -46,7 +50,7 @@ export function ScenarioBuilder() {
               <label className="block text-xs text-muted-foreground"><span className="flex justify-between"><span>Weeks a month</span><span className="num text-sm font-semibold text-foreground">{lever.promo_weeks_per_month}</span></span>
                 <input aria-label="Promotion weeks per month" type="range" min="1" max="4" step="1" value={lever.promo_weeks_per_month} onChange={(e) => updateLever(index, { promo_weeks_per_month: Number(e.target.value) })} className="mt-2" /></label>
             </div>}
-            {outside && <p className="rounded bg-loss/5 p-2 text-xs text-loss">This setting is outside the data. The engine will refuse it and show no numbers; use the nearest supported option on the Compare step.</p>}
+            {outside && <p className="rounded bg-loss/5 p-2 text-xs text-loss">We haven't seen this in the data, so we won't guess and there will be no numbers. The Compare step offers the closest option we can stand behind.</p>}
             {others.length > 0 && <p className="text-xs text-muted-foreground">Also set: {others.join("; ")}</p>}
           </>}
         </div>

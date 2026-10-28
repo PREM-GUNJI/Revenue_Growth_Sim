@@ -4,6 +4,7 @@ import { CandidateTable, SyntheticBanner } from "@/components/evidence-parts"
 import { evaluateScenarios, researchToScenarios } from "@/lib/api"
 import type { ApiLever, ApiScenario, ApiScenarioResult, EnvelopeInfo, EvidenceDefaults, ResearchBridgeResponse } from "@/lib/api"
 import { BRAND, PACKS, baselineLever, changePct, compact, inr, newScenario, packLabel, rupees, signed, signedRupees, skuFor, tone, totals } from "@/lib/catalog"
+import { useDetailMode } from "@/lib/preferences"
 import type { Assumption } from "@/lib/types"
 
 type Add = (scenario: ApiScenario) => void
@@ -54,6 +55,7 @@ function PricePanel({ base, pack, baseline, envelope, defaults, assumptions, onA
   assumptions: Assumption[]; onAdd: Add
 }) {
   const sku = skuFor(pack), ref = defaults.reference_prices[pack]
+  const [detail] = useDetailMode()
   const [lo, hi] = envelope.price_index_p1_p99[sku] ?? [0.9, 1.1]
   const xs = useMemo(() => Array.from({ length: 11 }, (_, i) => Math.round((lo - 0.15 * (hi - lo) + (i / 10) * 1.3 * (hi - lo)) * 1000) / 1000), [lo, hi])
   const { results, loading } = useSweep(xs.map((x) => withLever(base, pack, { price_index: x })))
@@ -67,13 +69,13 @@ function PricePanel({ base, pack, baseline, envelope, defaults, assumptions, onA
     <div className="grid gap-4 md:grid-cols-3">
       <div className="rounded-lg border bg-card p-4"><p className="text-xs text-muted-foreground">Own-price elasticity (assumed)</p>
         <p className="num mt-1 text-2xl font-semibold">{elasticity?.value ?? "…"}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{elasticity ? `${elasticity.id}, plausible range ${elasticity.validRange}` : ""}. A 1% price rise cuts volume by about this many percent, before cross-pack effects.</p></div>
-      <div className="rounded-lg border bg-card p-4"><p className="text-xs text-muted-foreground">Reference price, {packLabel(pack)}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{elasticity ? `Raise the price 1% and you sell about ${Math.abs(Number(elasticity.value)).toFixed(1)}% fewer, before shoppers switch packs.` : ""}{detail && elasticity ? ` ${elasticity.id}, plausible range ${elasticity.validRange}.` : ""}</p></div>
+      <div className="rounded-lg border bg-card p-4"><p className="text-xs text-muted-foreground">Today's shelf price, {packLabel(pack)}</p>
         <p className="num mt-1 text-2xl font-semibold">{inr(ref)}</p>
-        <p className="mt-1 text-xs text-muted-foreground">Price index 1.00. Supported range {lo.toFixed(2)} to {hi.toFixed(2)}; outside it the engine refuses.</p></div>
-      <div className="rounded-lg border bg-card p-4"><p className="text-xs text-muted-foreground">Current lever</p>
+        <p className="mt-1 text-xs text-muted-foreground">We have data between {inr(ref * lo)} and {inr(ref * hi)}; outside that we won't guess.</p></div>
+      <div className="rounded-lg border bg-card p-4"><p className="text-xs text-muted-foreground">Price in this option</p>
         <p className="num mt-1 text-2xl font-semibold">{inr(ref * lever.price_index)}</p>
-        <p className="mt-1 text-xs text-muted-foreground">Price index {lever.price_index.toFixed(2)} in &ldquo;{base.name}&rdquo;.</p></div>
+        <p className="mt-1 text-xs text-muted-foreground">{signed((lever.price_index - 1) * 100)} on today's price in &ldquo;{base.name}&rdquo;.</p></div>
     </div>
     <section className="rounded-lg border bg-card p-5">
       <h3 className="font-display text-lg font-semibold">Demand, revenue and margin response</h3>

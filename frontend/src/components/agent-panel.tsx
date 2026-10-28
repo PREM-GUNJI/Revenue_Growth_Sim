@@ -1,4 +1,6 @@
 import { ProvenanceChain } from "@/components/evidence-parts"
+import { MEANING, type ClaimLabel } from "@/lib/claim-labels"
+import { useDetailMode } from "@/lib/preferences"
 import { RefusalDetail } from "@/components/refusal-detail"
 import { SensitivityTable } from "@/components/sensitivity-panel"
 import { type AgentClaim, type ApiScenario, type ApiScenarioResult, type Provenance, type ResearchScenarioRow, type SensitivityResult } from "@/lib/api"
@@ -22,6 +24,7 @@ function suggestions(question: string | undefined): string[] {
 export function AgentPanel({ compact = false }: { compact?: boolean }) {
   const { agent, addExternal, workspace } = useWorkspace()
   const { goal, setGoal, run, error, loading, ask } = agent
+  const [detail] = useDetailMode()
   const evaluations = run?.tool_events.find((event) => event.name === "evaluate_scenarios")?.result
   const rows = Array.isArray(evaluations) ? evaluations : []
   const sensitivity = run?.tool_events.find((event) => event.name === "sensitivity")?.result as SensitivityResult | undefined
@@ -48,26 +51,24 @@ export function AgentPanel({ compact = false }: { compact?: boolean }) {
       {error && <p role="alert" className="text-sm text-loss">{error}</p>}
     </div>
     {run && <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className={`rounded px-2 py-1 text-xs font-medium ${run.audit.passed ? "bg-gain/15 text-gain" : "bg-loss/10 text-loss"}`}>{run.audit.passed ? "Auditor passed" : "Auditor rejected"}</span>
-        <span className="rounded border px-2 py-1 text-xs">{run.model_id}</span>
-        <span className="text-xs text-muted-foreground">Total {run.wall_time_ms.toFixed(0)} ms, model {run.model_time_ms.toFixed(0)} ms, tools {run.tool_time_ms.toFixed(0)} ms, trace {run.trace_id}</span>
-      </div>
-      {!run.audit.passed && <ul className="list-disc pl-5 text-sm text-loss">{run.audit.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>}
       <article className="space-y-3 rounded-lg border bg-card p-5">
-        <h3 className="font-display text-lg font-semibold">Summary</h3>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-display text-lg font-semibold">Answer</h3>
+          <span title="An independent auditor checked that every number in this answer comes from an engine result." className={`rounded px-2 py-1 text-xs font-medium ${run.audit.passed ? "bg-gain/15 text-gain" : "bg-loss/10 text-loss"}`}>{run.audit.passed ? "Verified against the engine" : "Not verified: the auditor found problems"}</span>
+        </div>
+        {!run.audit.passed && <ul className="list-disc pl-5 text-sm text-loss">{run.audit.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>}
         <p className="text-sm">{run.answer.summary}</p>
         {run.answer.recommendations.map((item) => <p key={item} className="text-sm font-medium">{item}</p>)}
         {run.answer.refusals.map((item) => <p key={item} className="hatch rounded border border-dashed border-loss/40 p-2 text-sm text-loss">{item}</p>)}
         {run.answer.caveats.map((item) => <p key={item} className="text-xs text-muted-foreground">{item}</p>)}
-        <div className="flex flex-wrap gap-2">{run.answer.claims.map((claim) => <span key={claim.claim_id} className={`rounded-full border px-2.5 py-1 text-xs ${chipClass(claim)}`}><strong>{claim.research_id ? "Modeled (research-derived)" : claim.label}</strong>: {claim.text}</span>)}</div>
+        <div className="flex flex-wrap gap-2">{run.answer.claims.map((claim) => <span key={claim.claim_id} title={claim.research_id ? "Calculated by the engine from a price that synthetic research proposed." : MEANING[claim.label as ClaimLabel]} className={`cursor-help rounded-full border px-2.5 py-1 text-xs ${chipClass(claim)}`}><strong>{claim.research_id ? "Modeled (research-derived)" : claim.label}</strong>: {claim.text}</span>)}</div>
       </article>
       {evidenceEvents.length > 0 && <section className="space-y-3 rounded-lg border border-edge/40 bg-edge/5 p-5">
         <h3 className="font-display text-lg font-semibold text-edge">Synthetic consumer evidence used</h3>
         <p className="text-sm text-foreground/80">Research proposed the candidate prices below. Their commercial outcomes come from the engine, on the same board as every other scenario.</p>
         {evidenceEvents.map((event) => {
           const result = event.result as { research_id: string; methodology: string; sample_size: number; candidates: Array<{ price: number; source_metric: string }> }
-          return <p key={event.call_id} className="text-sm"><code>{result.research_id}</code> {result.methodology}, {result.sample_size.toLocaleString()} synthetic respondents: {result.candidates.map((c) => `₹${c.price.toFixed(2)} (${c.source_metric})`).join(", ")}</p>
+          return <p key={event.call_id} className="text-sm">{detail && <><code>{result.research_id}</code> </>}{result.methodology}, {result.sample_size.toLocaleString()} synthetic respondents: {result.candidates.map((c) => `₹${c.price.toFixed(2)} (${c.source_metric})`).join(", ")}</p>
         })}
         {mapped.slice(0, 1).map((row) => <details key={row.scenario_id} className="text-sm"><summary className="cursor-pointer text-muted-foreground">Provenance of the first candidate</summary><div className="mt-2"><ProvenanceChain source={row.provenance} scenarioId={row.scenario_id} resultHash={row.result_hash} /></div></details>)}
       </section>}
@@ -114,8 +115,14 @@ export function AgentPanel({ compact = false }: { compact?: boolean }) {
         <SensitivityTable data={sensitivity} names={run.scenarios.map((item) => item.name)} />
       </section>}
       <details className="rounded-md border bg-card p-3">
-        <summary className="cursor-pointer text-sm font-medium">Replay trace events</summary>
-        <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(run.tool_events, null, 2)}</pre>
+        <summary className="cursor-pointer text-sm font-medium">Audit details</summary>
+        <dl className="mt-2 grid gap-x-4 gap-y-1 text-xs sm:grid-cols-[auto_1fr]">
+          <dt className="text-muted-foreground">Auditor</dt><dd>{run.audit.passed ? "Passed: every number traces to a tool result" : "Rejected"}</dd>
+          <dt className="text-muted-foreground">Model</dt><dd>{run.model_id}</dd>
+          <dt className="text-muted-foreground">Time</dt><dd className="num">total {run.wall_time_ms.toFixed(0)} ms, model {run.model_time_ms.toFixed(0)} ms, tools {run.tool_time_ms.toFixed(0)} ms</dd>
+          <dt className="text-muted-foreground">Trace</dt><dd className="font-mono">{run.trace_id}</dd>
+        </dl>
+        {detail && <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap text-xs" aria-label="Replay trace events">{JSON.stringify(run.tool_events, null, 2)}</pre>}
       </details>
     </div>}
   </section>

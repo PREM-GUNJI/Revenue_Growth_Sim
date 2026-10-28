@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useMatch } from "react-router-dom"
 import { Bot, ChartColumn, GitCompareArrows, History, House, LayoutDashboard, LogOut, Menu, Presentation, ScrollText, SlidersHorizontal, Sparkles, Users, X } from "lucide-react"
 import c5iLogo from "@/assets/c5i-logo.png"
 import type { AuthUser } from "@/lib/auth"
+import { useAdvancedResearch, useDetailMode } from "@/lib/preferences"
 
 export interface AppOutletContext { user: AuthUser }
 
@@ -29,6 +30,8 @@ export function AppLayout({ user, onSignOut }: { user: AuthUser; onSignOut: () =
   const location = useLocation()
   const base = workspace ? `/w/${workspace.params.workspaceId}` : undefined
   const close = () => setOpen(false)
+  const [detail, setDetail] = useDetailMode()
+  const [research, setResearch] = useAdvancedResearch()
 
   const stepItems: Item[] = base ? [
     { to: base, label: "1  Situation", icon: LayoutDashboard, end: true },
@@ -39,7 +42,7 @@ export function AppLayout({ user, onSignOut }: { user: AuthUser; onSignOut: () =
   const briefItems: Item[] = base ? [
     { to: `${base}/executive`, label: "Executive brief", icon: Presentation },
   ] : []
-  const evidenceItems: Item[] = base ? [
+  const evidenceItems: Item[] = base && research ? [
     { to: `${base}/evidence`, label: "Pricing evidence", icon: ChartColumn },
     { to: `${base}/conjoint`, label: "Conjoint simulation", icon: Sparkles },
     { to: `${base}/personas`, label: "Customer personas", icon: Users },
@@ -59,13 +62,19 @@ export function AppLayout({ user, onSignOut }: { user: AuthUser; onSignOut: () =
         <NavGroup items={[{ to: "/", label: "Home", icon: House, end: true }]} onNavigate={close} />
         {briefItems.length > 0 && <NavGroup title="Boardroom" items={briefItems} onNavigate={close} />}
         {stepItems.length > 0 && <NavGroup title="This case" items={stepItems} onNavigate={close} />}
-        {evidenceItems.length > 0 && <NavGroup title="Customer evidence" items={evidenceItems} onNavigate={close} />}
+        {evidenceItems.length > 0 && <NavGroup title="Customer evidence (synthetic)" items={evidenceItems} onNavigate={close} />}
         <NavGroup title="Governance" items={governanceItems} onNavigate={close} />
       </nav>
       <div className="mt-3 border-t pt-3">
         <div className="px-2 pb-2">
           <p className="truncate text-sm font-medium" title={user.email}>{user.display_name}</p>
           <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+        </div>
+        <div className="space-y-1.5 px-2 pb-2 text-xs text-muted-foreground" aria-label="Display preferences">
+          <label className="flex items-center gap-2" title="Illustrative willingness-to-pay, conjoint and persona studies run on synthetic respondents.">
+            <input type="checkbox" checked={research} onChange={(e) => setResearch(e.target.checked)} />Advanced research</label>
+          <label className="flex items-center gap-2" title="Timings, scenario IDs, result hashes, assumption IDs and raw agent traces.">
+            <input type="checkbox" checked={detail} onChange={(e) => setDetail(e.target.checked)} />Show technical details</label>
         </div>
         <button type="button" onClick={onSignOut} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-secondary hover:text-foreground">
           <LogOut className="size-4" aria-hidden="true" />Sign out

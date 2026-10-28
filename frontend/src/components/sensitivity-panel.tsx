@@ -1,17 +1,19 @@
 import { useState } from "react"
 import { getSensitivity, type ApiScenario, type SensitivityResult } from "@/lib/api"
+import { useDetailMode } from "@/lib/preferences"
 
 /** Which documented assumptions the answer depends on, and whether the leader changes at the ends of their ranges. */
 export function SensitivityTable({ data, names }: { data: SensitivityResult; names: string[] }) {
   const name = (i: number | null) => i === null ? "none" : names[i] || `Scenario ${i + 1}`
   const rows = data.assumptions.filter((r) => (r.swing ?? 0) > 0).slice(0, 6)
   const flips = rows.filter((r) => r.flips_winner)
+  const [detail] = useDetailMode()
   return <div className="space-y-2">
     <p className="text-sm">Leader on the central assumptions: <strong>{name(data.base_winner)}</strong>. {flips.length ? `${flips.length} assumption${flips.length > 1 ? "s" : ""} can change the leader within their documented ranges.` : "No single assumption changes the leader within its documented range."}</p>
     <div className="overflow-x-auto"><table className="w-full text-left text-sm">
       <thead className="text-xs text-muted-foreground"><tr><th className="py-1 pr-3">Assumption</th><th className="pr-3">Low → leader</th><th className="pr-3">High → leader</th><th className="text-right">Swing in leader GP</th></tr></thead>
       <tbody>{rows.map((r) => <tr key={r.assumption_id} className="border-t">
-        <td className="py-1.5 pr-3"><code className="text-xs">{r.assumption_id}</code> {r.label}</td>
+        <td className="py-1.5 pr-3">{detail && <code className="text-xs">{r.assumption_id} </code>}{r.label}</td>
         <td className="pr-3">{r.low.value}: {name(r.low.winner)}</td><td className="pr-3">{r.high.value}: {name(r.high.winner)}</td>
         <td className={`num text-right ${r.flips_winner ? "font-medium text-loss" : ""}`}>{(r.swing ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}{r.flips_winner ? " · flips" : ""}</td></tr>)}</tbody>
     </table></div>

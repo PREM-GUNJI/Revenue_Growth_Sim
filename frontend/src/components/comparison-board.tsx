@@ -5,6 +5,7 @@ import { ProvenanceChain } from "@/components/evidence-parts"
 import { LabelTag } from "@/components/label-tag"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { rupees, signed, signedRupees, tone, units } from "@/lib/catalog"
+import { useDetailMode } from "@/lib/preferences"
 import type { ScenarioBridge, ScenarioDelta, ScenarioResult } from "@/lib/types"
 
 const chip = "rounded px-1.5 py-0.5 text-xs"
@@ -16,6 +17,14 @@ const BRIDGE: Array<[keyof Omit<ScenarioBridge, "total">, string, string]> = [
   ["trade", "Trade terms", "Change in trade spend, fixed terms plus promotion funding"],
   ["cogs", "Unit costs", "Change in cost of goods from the new volume or input costs"],
 ]
+
+/** "Likely range" with the one explanation users need; the band comes from the engine's assumption draws. */
+export function LikelyRange() {
+  return <Tooltip>
+    <TooltipTrigger render={<span className="cursor-help underline decoration-dotted underline-offset-2" />}>The likely range</TooltipTrigger>
+    <TooltipContent>How much the answer moves if our assumptions are somewhat off. The engine re-runs each option across the documented assumption ranges; it is not a forecast interval.</TooltipContent>
+  </Tooltip>
+}
 
 type SortKey = "name" | "units" | "revenue" | "gp" | "change" | "margin"
 
@@ -40,6 +49,7 @@ export function ComparisonBoard({ scenarios, onUseNearest, volumeGuardrailPct, o
   scenarios: ScenarioResult[]; onUseNearest?: (id: string) => void; volumeGuardrailPct: number; onShowAssumptions?: (ids: string[]) => void
 }) {
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "gp", desc: true })
+  const [detail] = useDetailMode()
   const ok = scenarios.filter((s) => s.status !== "REFUSED" && s.delta && s.abs)
   const refused = scenarios.filter((s) => s.status === "REFUSED")
   const scale = (pick: (d: ScenarioDelta) => number, band = false) =>
@@ -73,7 +83,7 @@ export function ComparisonBoard({ scenarios, onUseNearest, volumeGuardrailPct, o
       <div className="flex flex-wrap items-center gap-2"><h2 className="font-display text-lg font-semibold">All options, side by side</h2><LabelTag label="Modeled" />
         <span className="text-xs text-muted-foreground">Aurora only, per typical week, in rupees. Click a heading to sort.</span></div>
       <div className="overflow-x-auto rounded-lg border bg-card"><table className="w-full min-w-[860px] text-sm">
-        <thead><tr className="text-xs text-muted-foreground">{head("name", "Scenario", "text-left")}{head("units", "Units")}{head("revenue", "Revenue")}{head("gp", "Gross profit")}{head("change", "Change vs baseline")}{head("margin", "Margin")}<th scope="col" className="px-3 py-2 text-right font-normal">Gross profit range</th></tr></thead>
+        <thead><tr className="text-xs text-muted-foreground">{head("name", "Scenario", "text-left")}{head("units", "Units")}{head("revenue", "Revenue")}{head("gp", "Gross profit")}{head("change", "Change vs baseline")}{head("margin", "Margin")}<th scope="col" className="px-3 py-2 text-right font-normal">Likely gross profit range</th></tr></thead>
         <tbody>{sorted.map((s) => {
           const a = s.abs!
           return <tr key={s.scenarioId + s.name} className={`border-t ${s === winner ? "bg-gain/5" : ""}`}>
@@ -83,8 +93,8 @@ export function ComparisonBoard({ scenarios, onUseNearest, volumeGuardrailPct, o
             <td className="num px-3 py-2.5 text-right">{a.marginPct.toFixed(1)}%</td>
             <td className="num px-3 py-2.5 text-right text-xs text-muted-foreground">{rupees(a.gpRange[0])} to {rupees(a.gpRange[1])}</td></tr>
         })}
-          {refused.map((s) => <tr key={s.scenarioId + s.name} className="hatch border-t"><td className="px-3 py-2.5 font-medium">{s.name}</td><td colSpan={6} className="px-3 py-2.5 text-loss">REFUSED: outside the data the engine can support, so there are no numbers.</td></tr>)}</tbody></table></div>
-      <p className="text-xs text-muted-foreground">The range is the engine's P10 to P90 for Aurora's total gross profit across the assumption ranges. It is a sensitivity band, not a confidence interval.</p>
+          {refused.map((s) => <tr key={s.scenarioId + s.name} className="hatch border-t"><td className="px-3 py-2.5 font-medium">{s.name}</td><td colSpan={6} className="px-3 py-2.5 text-loss">REFUSED: we haven't seen this in the data, so we won't guess. No numbers.</td></tr>)}</tbody></table></div>
+      <p className="text-xs text-muted-foreground"><LikelyRange /> shows how much Aurora's gross profit moves if our assumptions are somewhat off{detail && " (P10 to P90 across the assumption ranges)"}. It is an assumption range, not a forecast interval.</p>
     </section>}
 
     <div className="space-y-3">
@@ -109,14 +119,14 @@ export function ComparisonBoard({ scenarios, onUseNearest, volumeGuardrailPct, o
               <TooltipTrigger render={<div className="min-w-0 cursor-help text-left" />}>
                 <Metric label="Gross profit" value={d.marginPct} max={mMax} strong band={s.p10 && s.p90 ? [s.p10.marginPct, s.p90.marginPct] : undefined} extra={rupees(a.gp) + " · margin " + signed(d.marginPpt, 1).replace("%", " pp")} />
               </TooltipTrigger>
-              <TooltipContent>P10 to P90 for Aurora's gross profit: {rupees(a.gpRange[0])} to {rupees(a.gpRange[1])} a week ({signed(s.p10?.marginPct ?? 0)} to {signed(s.p90?.marginPct ?? 0)}). Sensitivity band, not a confidence interval.</TooltipContent>
+              <TooltipContent>Likely range for Aurora's gross profit: {rupees(a.gpRange[0])} to {rupees(a.gpRange[1])} a week ({signed(s.p10?.marginPct ?? 0)} to {signed(s.p90?.marginPct ?? 0)}) if our assumptions are somewhat off. Not a forecast interval.</TooltipContent>
             </Tooltip>
           </div>
           {!s.isBaseline && s.bridge && <div className="mt-3"><Why bridge={s.bridge} /></div>}
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
             {s.assumptionIds && onShowAssumptions && <button type="button" onClick={() => onShowAssumptions(s.assumptionIds as string[])} className="rounded font-medium text-primary underline-offset-4 hover:underline">Rests on {s.assumptionIds.length} assumptions</button>}
-            <CopyId id={s.scenarioId} />
-            {s.resultHash && <span className="font-mono" title="Hash of the full result. Identical settings give an identical hash.">result {s.resultHash.slice(0, 8)}</span>}
+            {detail && <CopyId id={s.scenarioId} />}
+            {detail && s.resultHash && <span className="font-mono" title="Hash of the full result. Identical settings give an identical hash.">result {s.resultHash.slice(0, 8)}</span>}
           </div>
           {s.source && <details className="mt-3 text-sm"><summary className="cursor-pointer text-muted-foreground">Where this price came from</summary>
             <div className="mt-2"><ProvenanceChain source={s.source} scenarioId={s.scenarioId} resultHash={s.resultHash} /></div></details>}
@@ -126,7 +136,7 @@ export function ComparisonBoard({ scenarios, onUseNearest, volumeGuardrailPct, o
         <div className="flex flex-wrap items-center gap-2"><h3 className="font-display text-base font-semibold">{s.name}</h3><span className="rounded bg-loss px-1.5 py-0.5 text-xs font-medium text-white">REFUSED</span>
           {s.source && <span className={`${chip} bg-edge/10 text-edge`}>From {s.source.methodology.split(" (")[0]} study</span>}</div>
         {s.refusals?.length ? <RefusalDetail reasons={s.refusals} /> : <p className="mt-2 max-w-2xl text-sm">{s.refusalReason}</p>}
-        <p className="mt-1 text-xs text-muted-foreground">The engine will not extrapolate outside supported data, so there are no numbers for this scenario.</p>
+        <p className="mt-1 text-xs text-muted-foreground">We won't guess outside the data, so there are no numbers for this option.{s.nearestSupportedId && " The closest option we can stand behind is one click away."}</p>
         {s.nearestSupportedId && <button type="button" onClick={() => onUseNearest?.(s.scenarioId)} className="mt-3 rounded-md border border-primary/40 bg-card px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary hover:text-primary-foreground">Use nearest supported scenario</button>}
       </article>)}
     </div>

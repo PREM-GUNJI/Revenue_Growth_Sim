@@ -6,6 +6,8 @@ import { SensitivityPanel } from "@/components/sensitivity-panel"
 import { useWorkspace } from "@/workspace/workspace-context"
 
 const tab = "flex-none rounded-md px-4 py-2 text-sm data-active:bg-ink data-active:text-white!"
+const more = "rounded-lg border bg-card/60 p-4"
+const summary = "cursor-pointer font-display text-base font-semibold"
 
 export function BoardPage() {
   const { guardrail, setGuardrail, loading, results, situation, heatmap, heatmapLoading, generateHeatmap, addNearestSupported, openAssumptions, scenarios, addExternal } = useWorkspace()
@@ -13,15 +15,19 @@ export function BoardPage() {
     <Tabs defaultValue="board">
       <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Step 3 of 4 · Compare</p>
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <TabsList className="h-auto w-fit justify-start gap-1 rounded-lg bg-secondary p-1"><TabsTrigger value="board" className={tab}>Comparison board</TabsTrigger><TabsTrigger value="analytics" className={tab}>Analytics</TabsTrigger></TabsList>
+        <TabsList className="h-auto w-fit justify-start gap-1 rounded-lg bg-secondary p-1"><TabsTrigger value="board" className={tab}>Comparison board</TabsTrigger><TabsTrigger value="analytics" className={tab}>Advanced charts</TabsTrigger></TabsList>
         <label className="text-xs text-muted-foreground">Volume guardrail: lose no more than <span className="num text-sm font-semibold text-foreground">{guardrail}%</span> volume
           <input aria-label="Volume guardrail" type="range" min="0" max="20" step="1" value={guardrail} onChange={(e) => setGuardrail(Number(e.target.value))} className="mt-1 block w-48" /></label>
       </div>
       <TabsContent value="board" className={`mt-5 space-y-4 transition-opacity ${loading && results.length ? "opacity-60" : ""}`}>
         {!results.length && loading && <p className="text-sm text-muted-foreground">Evaluating scenarios…</p>}
         {results.length > 0 && <ComparisonBoard scenarios={results} onUseNearest={addNearestSupported} volumeGuardrailPct={guardrail} onShowAssumptions={openAssumptions} />}
-        {results.length > 1 && <SensitivityPanel scenarios={scenarios} />}
-        <GoalSeekPanel onAdd={addExternal} />
+        {results.length > 1 && <details className={more}>
+          <summary className={summary}>How confident are we? <span className="font-normal text-muted-foreground">Check whether the winner holds if an assumption is off</span></summary>
+          <div className="mt-3"><SensitivityPanel scenarios={scenarios} /></div></details>}
+        <details className={more}>
+          <summary className={summary}>Find a price that... <span className="font-normal text-muted-foreground">Search for the most profitable move within your volume limit</span></summary>
+          <div className="mt-3"><GoalSeekPanel onAdd={addExternal} /></div></details>
       </TabsContent>
       <TabsContent value="analytics" className="mt-5">{results.length > 0 && <AnalyticsViews scenarios={results} heatmap={heatmap} baselineGp={situation?.totals.focal.gp ?? 0} onGenerateHeatmap={() => void generateHeatmap()} heatmapLoading={heatmapLoading} />}</TabsContent>
     </Tabs>

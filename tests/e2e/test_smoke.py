@@ -136,7 +136,7 @@ def test_ac024_loser_and_refusal_render_with_nearest_action(ui_url: str) -> None
             nearest.click()  # the edit autosaves to the workspace one second later
         assert saved.value.status == 200
         page.get_by_text("Nearest supported to Out-of-range can price").first.wait_for(timeout=30_000)
-        page.get_by_role("tab", name="Analytics").click()
+        page.get_by_role("tab", name="Advanced charts").click()
         page.get_by_text("Trade-off plane").wait_for()
         page.get_by_text("Why gross profit moved").wait_for()
         page.get_by_text("Price × promotion sweep").wait_for()
