@@ -7,6 +7,7 @@ import { newScenario, signed, signedRupees } from "@/lib/catalog"
 import { createWorkspace, getHubSummary, getWorkspaceScenarios, listWorkspaces, updateWorkspace } from "@/lib/workspaces"
 import type { HubSummary, WorkspaceMeta } from "@/lib/workspaces"
 import type { AppOutletContext } from "@/layout/app-layout"
+import { canEdit, useRole } from "@/lib/user-context"
 import { initialScenarios, pickBest, toUiResults } from "@/workspace/helpers"
 
 const GUARDRAIL_PCT = 5
@@ -60,6 +61,7 @@ function useHeadline(workspace: WorkspaceMeta): Headline {
 
 function WorkspaceCard({ workspace, onChanged }: { workspace: WorkspaceMeta; onChanged: () => void }) {
   const headline = useHeadline(workspace)
+  const editor = canEdit(useRole())
   // A workspace nobody has changed since it was created says "created", not "edited".
   const edited = new Date(workspace.updated_at).getTime() - new Date(workspace.created_at).getTime() > 2000
   const [confirming, setConfirming] = useState(false)
@@ -83,14 +85,14 @@ function WorkspaceCard({ workspace, onChanged }: { workspace: WorkspaceMeta; onC
       </p>
       <p className="mt-auto pt-4 text-xs text-muted-foreground">{workspace.scenario_count} option{workspace.scenario_count === 1 ? "" : "s"} · {edited ? `edited ${timeAgo(workspace.updated_at)} by ${workspace.updated_by}` : `created ${timeAgo(workspace.created_at)} by ${workspace.created_by}`}</p>
       <div className="mt-3 flex items-center gap-2">
-        {!workspace.archived && <Link to={`/w/${workspace.id}`} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:brightness-110">Open</Link>}
-        {workspace.archived
+        {!workspace.archived && <Link to={editor ? `/w/${workspace.id}` : `/w/${workspace.id}/executive`} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:brightness-110">{editor ? "Open" : "Open brief"}</Link>}
+        {editor && (workspace.archived
           ? <button type="button" onClick={() => void setArchived(false)} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-secondary">Restore</button>
           : confirming
             ? <><span className="text-xs text-muted-foreground">Archive this case?</span>
               <button type="button" onClick={() => void setArchived(true)} className="rounded px-2 py-1 text-xs font-medium text-loss hover:bg-loss/10">Archive</button>
               <button type="button" onClick={() => setConfirming(false)} className="rounded px-2 py-1 text-xs hover:bg-secondary">Cancel</button></>
-            : <button type="button" onClick={() => setConfirming(true)} className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground">Archive</button>}
+            : <button type="button" onClick={() => setConfirming(true)} className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground">Archive</button>)}
         {failed && <span role="alert" className="text-xs text-loss">Could not update</span>}
       </div>
     </li>
@@ -151,18 +153,21 @@ export function HomePage() {
   useEffect(() => { load() }, [load])
 
   const empty = workspaces !== undefined && workspaces.length === 0 && !showArchived
+  const editor = canEdit(user.role)
   return (
     <main className="mx-auto w-full max-w-[1200px] flex-1 space-y-8 px-5 py-8 md:px-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-3xl font-semibold">Welcome back, {firstName(user.display_name)}</h1>
-          <p className="mt-1 max-w-3xl text-muted-foreground">Each case is one pricing question about the Aurora brand. Open one to see where the brand stands, build and compare options, and get a recommendation. The assistant plans and explains; every number is calculated by the deterministic engine and checked by an auditor.</p>
+          <p className="mt-1 max-w-3xl text-muted-foreground">{editor
+            ? "Each case is one pricing question about the Aurora brand. Open one to see where the brand stands, build and compare options, and get a recommendation. The assistant plans and explains; every number is calculated by the deterministic engine and checked by an auditor."
+            : "Each case is one pricing question about the Aurora brand. Open a case to read its decision brief: the recommendation, the options considered and what we refused to estimate."}</p>
         </div>
-        {!creating && !empty && <button type="button" onClick={() => setCreating(true)} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:brightness-110">New case</button>}
+        {editor && !creating && !empty && <button type="button" onClick={() => setCreating(true)} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:brightness-110">New case</button>}
       </div>
 
       {error && <div role="alert" className="rounded-md border border-loss/40 bg-loss/5 p-3 text-sm text-loss">{error}</div>}
-      {(creating || empty) && <div className="max-w-xl"><NewWorkspaceForm onCancel={empty ? undefined : () => setCreating(false)} /></div>}
+      {editor && (creating || empty) && <div className="max-w-xl"><NewWorkspaceForm onCancel={empty ? undefined : () => setCreating(false)} /></div>}
 
       <section aria-label="Cases" className="space-y-4">
         <div className="flex items-center justify-between">
@@ -171,7 +176,7 @@ export function HomePage() {
             <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Show archived ({summary.workspaces.archived})</label>}
         </div>
         {workspaces === undefined && !error && <p className="text-sm text-muted-foreground" role="status">Loading cases…</p>}
-        {empty && <p className="text-sm text-muted-foreground">No cases yet. Create your first one above.</p>}
+        {empty && <p className="text-sm text-muted-foreground">{editor ? "No cases yet. Create your first one above." : "No cases have been shared yet. An analyst creates them; they will appear here."}</p>}
         {workspaces && workspaces.length > 0 && <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {workspaces.map((workspace) => <WorkspaceCard key={workspace.id + workspace.updated_at + workspace.archived} workspace={workspace} onChanged={load} />)}
         </ul>}

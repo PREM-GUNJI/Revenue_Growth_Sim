@@ -1,4 +1,5 @@
-export interface AuthUser { email: string; display_name: string }
+export type Role = "viewer" | "analyst" | "admin"
+export interface AuthUser { email: string; display_name: string; role: Role }
 
 /** Raised by the API client on a 401 so the app can fall back to the sign-in page. */
 export class AuthError extends Error {

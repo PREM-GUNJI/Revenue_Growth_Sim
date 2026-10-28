@@ -4,6 +4,9 @@ import { Bot, ChartColumn, GitCompareArrows, History, House, LayoutDashboard, Lo
 import c5iLogo from "@/assets/c5i-logo.png"
 import type { AuthUser } from "@/lib/auth"
 import { useAdvancedResearch, useDetailMode } from "@/lib/preferences"
+import { UserContext, canEdit, isAdmin } from "@/lib/user-context"
+
+const ROLE_LABEL = { viewer: "Viewer", analyst: "Analyst", admin: "Admin" } as const
 
 export interface AppOutletContext { user: AuthUser }
 
@@ -33,7 +36,8 @@ export function AppLayout({ user, onSignOut }: { user: AuthUser; onSignOut: () =
   const [detail, setDetail] = useDetailMode()
   const [research, setResearch] = useAdvancedResearch()
 
-  const stepItems: Item[] = base ? [
+  const editor = canEdit(user.role), admin = isAdmin(user.role)
+  const stepItems: Item[] = base && editor ? [
     { to: base, label: "1  Situation", icon: LayoutDashboard, end: true },
     { to: `${base}/simulator`, label: "2  Options", icon: SlidersHorizontal },
     { to: `${base}/board`, label: "3  Compare", icon: GitCompareArrows },
@@ -42,13 +46,13 @@ export function AppLayout({ user, onSignOut }: { user: AuthUser; onSignOut: () =
   const briefItems: Item[] = base ? [
     { to: `${base}/executive`, label: "Executive brief", icon: Presentation },
   ] : []
-  const evidenceItems: Item[] = base && research ? [
+  const evidenceItems: Item[] = base && editor && research ? [
     { to: `${base}/evidence`, label: "Pricing evidence", icon: ChartColumn },
     { to: `${base}/conjoint`, label: "Conjoint simulation", icon: Sparkles },
     { to: `${base}/personas`, label: "Customer personas", icon: Users },
   ] : []
 
-  const governanceItems: Item[] = [
+  const governanceItems: Item[] = !admin ? [] : [
     { to: "/agent-runs", label: "Agent runs", icon: History },
     { to: "/audit", label: "Audit and AI usage", icon: ScrollText },
   ]
@@ -63,16 +67,16 @@ export function AppLayout({ user, onSignOut }: { user: AuthUser; onSignOut: () =
         {briefItems.length > 0 && <NavGroup title="Boardroom" items={briefItems} onNavigate={close} />}
         {stepItems.length > 0 && <NavGroup title="This case" items={stepItems} onNavigate={close} />}
         {evidenceItems.length > 0 && <NavGroup title="Customer evidence (synthetic)" items={evidenceItems} onNavigate={close} />}
-        <NavGroup title="Governance" items={governanceItems} onNavigate={close} />
+        {governanceItems.length > 0 && <NavGroup title="Governance" items={governanceItems} onNavigate={close} />}
       </nav>
       <div className="mt-3 border-t pt-3">
         <div className="px-2 pb-2">
           <p className="truncate text-sm font-medium" title={user.email}>{user.display_name}</p>
-          <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+          <p className="truncate text-xs text-muted-foreground">{user.email} · {ROLE_LABEL[user.role]}</p>
         </div>
         <div className="space-y-1.5 px-2 pb-2 text-xs text-muted-foreground" aria-label="Display preferences">
-          <label className="flex items-center gap-2" title="Illustrative willingness-to-pay, conjoint and persona studies run on synthetic respondents.">
-            <input type="checkbox" checked={research} onChange={(e) => setResearch(e.target.checked)} />Advanced research</label>
+          {editor && <label className="flex items-center gap-2" title="Illustrative willingness-to-pay, conjoint and persona studies run on synthetic respondents.">
+            <input type="checkbox" checked={research} onChange={(e) => setResearch(e.target.checked)} />Advanced research</label>}
           <label className="flex items-center gap-2" title="Timings, scenario IDs, result hashes, assumption IDs and raw agent traces.">
             <input type="checkbox" checked={detail} onChange={(e) => setDetail(e.target.checked)} />Show technical details</label>
         </div>
@@ -99,7 +103,7 @@ export function AppLayout({ user, onSignOut }: { user: AuthUser; onSignOut: () =
             {sidebar}
           </div>
         </div>}
-        <Outlet context={{ user } satisfies AppOutletContext} />
+        <UserContext.Provider value={user}><Outlet context={{ user } satisfies AppOutletContext} /></UserContext.Provider>
       </div>
     </div>
   )

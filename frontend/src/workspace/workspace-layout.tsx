@@ -1,11 +1,12 @@
 import { useState } from "react"
-import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router-dom"
+import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useParams } from "react-router-dom"
 import { Bot, Presentation } from "lucide-react"
 import { AgentPanel } from "@/components/agent-panel"
 import { AppFooter } from "@/components/app-footer"
 import { AssumptionsDrawer } from "@/components/assumptions-drawer"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { exportWorkspace, openWorkspaceBrief } from "@/lib/governance"
+import { canEdit, useRole } from "@/lib/user-context"
 import { ScenarioBuilder } from "./scenario-builder"
 import { useWorkspace } from "./workspace-context"
 import type { SaveState } from "./workspace-context"
@@ -16,11 +17,12 @@ const SAVE_LABEL: Record<SaveState, string> = { saved: "All changes saved", savi
 function WorkspaceName() {
   const { workspace, renameWorkspace } = useWorkspace()
   const [draft, setDraft] = useState<string>()
+  const editor = canEdit(useRole())
   if (!workspace) return null
   if (draft === undefined) {
     return <p className="flex items-center gap-2 text-sm font-medium text-muted-foreground">Case
       <span className="text-foreground">{workspace.name}</span>
-      <button type="button" onClick={() => setDraft(workspace.name)} className="rounded px-1.5 py-0.5 text-xs hover:bg-secondary print:hidden">Rename</button></p>
+      {editor && <button type="button" onClick={() => setDraft(workspace.name)} className="rounded px-1.5 py-0.5 text-xs hover:bg-secondary print:hidden">Rename</button>}</p>
   }
   const commit = () => {
     const name = draft.trim()
@@ -73,6 +75,7 @@ function WorkspaceFrame() {
   const showBuilder = /\/simulator$/.test(location.pathname)
   const onAssistantStep = /\/assistant$/.test(location.pathname)
   const onExecutive = /\/executive$/.test(location.pathname)
+  const editor = canEdit(useRole())
 
   if (status === "loading") return <main className="grid flex-1 place-items-center p-10 text-sm text-muted-foreground" role="status">Loading case…</main>
   if (status === "notfound" || status === "failed") {
@@ -83,6 +86,8 @@ function WorkspaceFrame() {
     </main>
   }
 
+  if (!editor && !onExecutive) return <Navigate to={`/w/${workspaceId}/executive`} replace />
+
   if (onExecutive) {
     return (
       <>
@@ -90,8 +95,8 @@ function WorkspaceFrame() {
           <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-3 md:px-10">
             <WorkspaceName />
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <span role="status" className={`text-xs ${saveState === "conflict" || saveState === "error" ? "text-loss" : "text-muted-foreground"}`}>{SAVE_LABEL[saveState]}</span>
-              <Link to={`/w/${workspaceId}`} className="rounded-md border bg-card px-3 py-1.5 text-sm font-medium hover:bg-secondary">Open workbench</Link>
+              {editor && <span role="status" className={`text-xs ${saveState === "conflict" || saveState === "error" ? "text-loss" : "text-muted-foreground"}`}>{SAVE_LABEL[saveState]}</span>}
+              {editor && <Link to={`/w/${workspaceId}`} className="rounded-md border bg-card px-3 py-1.5 text-sm font-medium hover:bg-secondary">Open workbench</Link>}
             </div>
           </div>
         </header>

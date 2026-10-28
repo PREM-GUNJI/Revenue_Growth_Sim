@@ -49,7 +49,8 @@ export function ExecutiveDeck({
   question?: string
   results: ScenarioResult[]
   guardrail: number
-  basePath: string
+  /** The case's workbench; omitted for viewers, who see the brief only. */
+  basePath?: string
   onExport: () => void
   exportBusy: boolean
   exportError?: string
@@ -71,8 +72,8 @@ export function ExecutiveDeck({
         <div className="flex flex-wrap items-center gap-2 print:hidden">
           <button type="button" onClick={() => window.print()} className="rounded-md border bg-card px-3 py-1.5 text-sm font-medium hover:bg-secondary">Print</button>
           <button type="button" onClick={onExport} disabled={exportBusy} className="rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">{exportBusy ? "Preparing…" : "Export deck"}</button>
-          <Link to={basePath} className="rounded-md border bg-card px-3 py-1.5 text-sm font-medium hover:bg-secondary">Open workbench</Link>
-          <Link to={`${basePath}/board`} className="text-sm text-muted-foreground underline-offset-4 hover:underline">Compare in detail</Link>
+          {basePath && <Link to={basePath} className="rounded-md border bg-card px-3 py-1.5 text-sm font-medium hover:bg-secondary">Open workbench</Link>}
+          {basePath && <Link to={`${basePath}/board`} className="text-sm text-muted-foreground underline-offset-4 hover:underline">Compare in detail</Link>}
           {exportError && <span role="alert" className="text-xs text-loss">{exportError}</span>}
         </div>
       </header>
@@ -96,13 +97,13 @@ export function ExecutiveDeck({
             <h2 className="font-display text-3xl font-semibold md:text-4xl">Hold the baseline</h2>
             <p className="max-w-2xl text-lg text-white/75">
               {results.filter((r) => !r.isBaseline).length === 0
-                ? "Add options on the workbench, or ask the assistant to propose some, then return here."
+                ? basePath ? "Add options on the workbench, or ask the assistant to propose some, then return here." : "No options have been added to this case yet."
                 : `No supported option beats baseline on gross profit while keeping volume loss within ${guardrail}%.`}
             </p>
-            <div className="flex flex-wrap gap-2 pt-1 print:hidden">
+            {basePath && <div className="flex flex-wrap gap-2 pt-1 print:hidden">
               <Link to={`${basePath}/simulator`} className="rounded-md bg-white px-3 py-1.5 text-sm font-medium text-ink">Build options</Link>
               <Link to={`${basePath}/assistant`} className="rounded-md border border-white/40 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/10">Open Recommend</Link>
-            </div>
+            </div>}
           </>}
         </div>
       </section>

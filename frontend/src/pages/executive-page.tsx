@@ -1,12 +1,14 @@
 import { useState } from "react"
 import { ExecutiveDeck } from "@/components/executive-deck"
 import { exportWorkspace } from "@/lib/governance"
+import { canEdit, useRole } from "@/lib/user-context"
 import { useWorkspace } from "@/workspace/workspace-context"
 
 /** Boardroom view of the case: recommendation, a few options, caveats — no analyst chrome. */
 export function ExecutivePage() {
   const { workspace, workspaceId, results, guardrail, loading } = useWorkspace()
   const [exportState, setExportState] = useState<{ busy: boolean; error?: string }>({ busy: false })
+  const editor = canEdit(useRole())
 
   async function download() {
     setExportState({ busy: true })
@@ -36,7 +38,7 @@ export function ExecutivePage() {
       question={workspace?.description}
       results={results}
       guardrail={guardrail}
-      basePath={`/w/${workspaceId}`}
+      basePath={editor ? `/w/${workspaceId}` : undefined}
       onExport={() => void download()}
       exportBusy={exportState.busy}
       exportError={exportState.error}
