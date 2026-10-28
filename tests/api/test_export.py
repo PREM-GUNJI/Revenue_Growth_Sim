@@ -60,7 +60,9 @@ def test_export_builds_a_deck_from_engine_results(client: TestClient) -> None:
     assert response.headers["content-disposition"] == 'attachment; filename="Q3-pricing-review.pptx"'  # unsafe characters removed
     text = deck_text(response.content)
     assert "Q3 / pricing: review" in text and "Promo 20%" in text and "Price +4%" in text
-    assert "synthetic" in text.lower() and "Traceability" in text
+    assert "Decision brief" in text and "Recommendation" in text and "Caveats" in text
+    assert "synthetic" in text.lower()
+    assert "7c3aed" not in text.lower()  # no purple-accent dependency in narrative copy
 
 
 def test_every_percentage_in_the_deck_matches_the_engine() -> None:
@@ -69,7 +71,10 @@ def test_every_percentage_in_the_deck_matches_the_engine() -> None:
     expected = export._signed(rows[1]["gp_pct"])
     assert rows[1]["gp_pct"] is not None and rows[0]["gp_pct"] == pytest.approx(0)
     deck = export.build_deck("T", scenarios, results, "Tester")
-    assert expected in deck_text(deck) and rows[1]["scenario_id"][:16] in deck_text(deck)
+    text = deck_text(deck)
+    assert expected in text and rows[1]["scenario_id"][:16] in text
+    story = export.executive_narrative(rows)
+    assert story["recommendation"] is not None or story["hold_baseline"]
 
 
 def test_refused_scenario_has_reasons_and_no_numbers() -> None:
@@ -78,9 +83,34 @@ def test_refused_scenario_has_reasons_and_no_numbers() -> None:
     assert rows[1]["status"] == "REFUSED" and rows[1]["reasons"]
     assert rows[1]["volume_pct"] is rows[1]["revenue_pct"] is rows[1]["gp_pct"] is None
     text = deck_text(export.build_deck("T", scenarios, results, "Tester"))
-    assert "no figures: refused" in text and "Refused requests" in text and rows[1]["reasons"][0] in text
-    # the refused scenario's row carries no percentage at all
+    assert "Wild" in text and "Caveats" in text and rows[1]["reasons"][0] in text
+    assert "no figures" in text.lower() or "refused" in text.lower()
+    # the refused scenario's name must not share a line with a percentage figure
     assert not any("%" in line and "Wild" in line for line in text.splitlines())
+
+
+def test_executive_narrative_picks_guardrailed_winner_and_keeps_losers() -> None:
+    scenarios, results = export.evaluate([
+        scenario("Baseline"),
+        scenario("Promo 20%", promo=20),
+        scenario("Price +4%", price=1.04),
+        scenario("Wild", price=1.5),
+    ])
+    story = export.executive_narrative(export.summary_rows(scenarios, results), guardrail_pct=5)
+    assert story["refused"] and story["refused"][0]["name"] == "Wild"
+    assert all(r["gp_pct"] is not None for r in story["options"])
+    assert len(story["options"]) <= 3
+    if story["recommendation"] is not None:
+        assert story["recommendation"]["volume_pct"] >= -5
+        assert story["recommendation"]["gp_pct"] > 0.05
+
+
+def test_html_brief_is_sparse_and_matches_narrative() -> None:
+    scenarios, results = export.evaluate([scenario("Baseline"), scenario("Promo 20%", promo=20), scenario("Wild", price=1.5)])
+    page = export.build_brief("Case", scenarios, results, "Tester")
+    assert "Decision brief" in page and "Recommended" in page and "Options at a glance" in page
+    assert "Wild" in page and "refused" in page.lower()
+    assert "<th>Result hash</th>" not in page  # hashes stay in the reproduce footer, not a table column
 
 
 def test_refused_baseline_means_no_comparisons_at_all() -> None:

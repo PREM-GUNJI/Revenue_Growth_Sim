@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Link, NavLink, Outlet, useLocation, useMatch } from "react-router-dom"
-import { Bot, ChartColumn, GitCompareArrows, History, House, LayoutDashboard, LogOut, Menu, ScrollText, SlidersHorizontal, Sparkles, Users, X } from "lucide-react"
+import { Bot, ChartColumn, GitCompareArrows, History, House, LayoutDashboard, LogOut, Menu, Presentation, ScrollText, SlidersHorizontal, Sparkles, Users, X } from "lucide-react"
 import c5iLogo from "@/assets/c5i-logo.png"
 import type { AuthUser } from "@/lib/auth"
 
@@ -36,6 +36,9 @@ export function AppLayout({ user, onSignOut }: { user: AuthUser; onSignOut: () =
     { to: `${base}/board`, label: "3  Compare", icon: GitCompareArrows },
     { to: `${base}/assistant`, label: "4  Recommend", icon: Bot },
   ] : []
+  const briefItems: Item[] = base ? [
+    { to: `${base}/executive`, label: "Executive brief", icon: Presentation },
+  ] : []
   const evidenceItems: Item[] = base ? [
     { to: `${base}/evidence`, label: "Pricing evidence", icon: ChartColumn },
     { to: `${base}/conjoint`, label: "Conjoint simulation", icon: Sparkles },
@@ -54,6 +57,7 @@ export function AppLayout({ user, onSignOut }: { user: AuthUser; onSignOut: () =
       </Link>
       <nav aria-label="Primary" className="flex-1 space-y-1 overflow-y-auto">
         <NavGroup items={[{ to: "/", label: "Home", icon: House, end: true }]} onNavigate={close} />
+        {briefItems.length > 0 && <NavGroup title="Boardroom" items={briefItems} onNavigate={close} />}
         {stepItems.length > 0 && <NavGroup title="This case" items={stepItems} onNavigate={close} />}
         {evidenceItems.length > 0 && <NavGroup title="Customer evidence" items={evidenceItems} onNavigate={close} />}
         <NavGroup title="Governance" items={governanceItems} onNavigate={close} />

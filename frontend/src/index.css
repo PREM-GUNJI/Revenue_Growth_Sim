@@ -175,3 +175,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 @keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 .bar { transform-origin: var(--origin, left); animation: grow 500ms cubic-bezier(.2,.7,.2,1) both; }
 @media (prefers-reduced-motion: reduce) { .bar { animation: none; } }
+
+/* Executive brief: print as a clean one-pager; hide app chrome outside the deck. */
+@media print {
+  aside, [aria-label="Sidebar"], .print\:hidden { display: none !important; }
+  body { background: white !important; }
+  .executive-deck { max-width: none; padding: 0; }
+}

@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom"
 import { AgentPanel } from "@/components/agent-panel"
 import { Why } from "@/components/comparison-board"
 import { LabelTag } from "@/components/label-tag"
@@ -6,12 +7,15 @@ import { useWorkspace } from "@/workspace/workspace-context"
 
 /** Step 4: the best option on the table, why it wins, and the assistant for a recommendation with audited claims. */
 export function AssistantPage() {
-  const { best, guardrail, results, openAssumptions, workspace } = useWorkspace()
+  const { best, guardrail, results, openAssumptions, workspace, workspaceId } = useWorkspace()
   const winner = best && best.abs && best.abs.gpChange > 0 ? best : undefined
   return <>
-    <header className="space-y-1">
-      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Step 4 of 4 · Recommend</p>
-      <h1 className="font-display text-3xl font-semibold">{workspace?.name}</h1>
+    <header className="flex flex-wrap items-end justify-between gap-3">
+      <div className="space-y-1">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Step 4 of 4 · Recommend</p>
+        <h1 className="font-display text-3xl font-semibold">{workspace?.name}</h1>
+      </div>
+      <Link to={`/w/${workspaceId}/executive`} className="rounded-md border bg-card px-3 py-1.5 text-sm font-medium hover:bg-secondary">View executive brief</Link>
     </header>
 
     <section aria-label="Best option" className="space-y-3 rounded-xl bg-ink p-6 text-white">

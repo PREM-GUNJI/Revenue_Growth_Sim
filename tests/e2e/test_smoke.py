@@ -175,13 +175,18 @@ def test_hub_audit_export_and_sign_out(ui_url: str) -> None:
         page.get_by_role("link", name="Agent runs").click()
         page.get_by_text("No agent runs yet").wait_for()
 
-        # Export the case as a deck.
+        # Export the case as a deck, then open the executive brief boardroom view.
         page.get_by_role("link", name="C5i home").click()
         page.get_by_role("link", name="Open").first.click()
         page.get_by_text("All changes saved").wait_for()
         with page.expect_download(timeout=60_000) as download:
             page.get_by_role("button", name="Export deck").click()
         assert download.value.suggested_filename.endswith(".pptx")
+        page.get_by_role("link", name="Executive brief").first.click()
+        page.wait_for_url("**/executive")
+        page.get_by_role("region", name="Recommendation").wait_for(timeout=30_000)
+        page.get_by_text("Decision brief", exact=False).first.wait_for()
+        page.get_by_role("heading", name="Options at a glance").wait_for()
 
         # Sign out returns to the sign-in page and the app is locked again.
         page.get_by_role("button", name="Sign out").click()

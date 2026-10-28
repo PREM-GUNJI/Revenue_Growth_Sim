@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router-dom"
-import { Bot } from "lucide-react"
+import { Bot, Presentation } from "lucide-react"
 import { AgentPanel } from "@/components/agent-panel"
 import { AppFooter } from "@/components/app-footer"
 import { AssumptionsDrawer } from "@/components/assumptions-drawer"
@@ -20,7 +20,7 @@ function WorkspaceName() {
   if (draft === undefined) {
     return <p className="flex items-center gap-2 text-sm font-medium text-muted-foreground">Case
       <span className="text-foreground">{workspace.name}</span>
-      <button type="button" onClick={() => setDraft(workspace.name)} className="rounded px-1.5 py-0.5 text-xs hover:bg-secondary">Rename</button></p>
+      <button type="button" onClick={() => setDraft(workspace.name)} className="rounded px-1.5 py-0.5 text-xs hover:bg-secondary print:hidden">Rename</button></p>
   }
   const commit = () => {
     const name = draft.trim()
@@ -57,7 +57,7 @@ function ExportButton({ workspaceId, disabled }: { workspaceId: string; disabled
 /** The four steps of a decision, in order. Each is a real URL, so a step can be shared or reloaded. */
 function Stepper({ base }: { base: string }) {
   const steps = [["Situation", base, true], ["Options", `${base}/simulator`, false], ["Compare", `${base}/board`, false], ["Recommend", `${base}/assistant`, false]] as const
-  return <nav aria-label="Decision steps" className="border-b bg-card/60">
+  return <nav aria-label="Decision steps" className="border-b bg-card/60 print:hidden">
     <ol className="mx-auto flex max-w-[1480px] flex-wrap gap-1 px-5 py-2 md:px-8">
       {steps.map(([label, to, end], i) => <li key={label}>
         <NavLink to={to} end={end} className={({ isActive }) => `flex items-center gap-2 rounded-md px-3 py-1.5 text-sm ${isActive ? "bg-ink font-medium text-white" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}>
@@ -72,6 +72,7 @@ function WorkspaceFrame() {
   const navigate = useNavigate()
   const showBuilder = /\/simulator$/.test(location.pathname)
   const onAssistantStep = /\/assistant$/.test(location.pathname)
+  const onExecutive = /\/executive$/.test(location.pathname)
 
   if (status === "loading") return <main className="grid flex-1 place-items-center p-10 text-sm text-muted-foreground" role="status">Loading case…</main>
   if (status === "notfound" || status === "failed") {
@@ -82,6 +83,26 @@ function WorkspaceFrame() {
     </main>
   }
 
+  if (onExecutive) {
+    return (
+      <>
+        <header className="sticky top-0 z-20 border-b bg-background/90 backdrop-blur-md print:hidden">
+          <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-3 md:px-10">
+            <WorkspaceName />
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <span role="status" className={`text-xs ${saveState === "conflict" || saveState === "error" ? "text-loss" : "text-muted-foreground"}`}>{SAVE_LABEL[saveState]}</span>
+              <Link to={`/w/${workspaceId}`} className="rounded-md border bg-card px-3 py-1.5 text-sm font-medium hover:bg-secondary">Open workbench</Link>
+            </div>
+          </div>
+        </header>
+        <main className="min-w-0 flex-1 bg-[linear-gradient(180deg,#f7f7f8_0%,#fafafa_40%,#ffffff_100%)]">
+          {error && <div role="alert" className="mx-auto max-w-5xl px-5 pt-4 text-sm text-loss md:px-10">{error}</div>}
+          <Outlet />
+        </main>
+      </>
+    )
+  }
+
   return (
     <>
       <header className="sticky top-0 z-20 border-b bg-background/90 backdrop-blur-md">
@@ -90,6 +111,9 @@ function WorkspaceFrame() {
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <span role="status" className={`text-xs ${saveState === "conflict" || saveState === "error" ? "text-loss" : "text-muted-foreground"}`}>{SAVE_LABEL[saveState]}</span>
             <span className="hidden items-center gap-1.5 text-xs text-muted-foreground 2xl:flex"><span className={`size-2 rounded-full ${error ? "bg-loss" : "bg-gain"}`} />{error ? "Engine unreachable" : "Synthetic data, engine " + (modelInfo?.engine_version ?? "…")}</span>
+            <Link to={`/w/${workspaceId}/executive`} className="flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-sm font-medium hover:bg-secondary">
+              <Presentation className="size-4" aria-hidden="true" />Executive brief
+            </Link>
             {!onAssistantStep && <button type="button" onClick={() => agent.setOpen(true)} className="flex items-center gap-1.5 rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-white"><Bot className="size-4" aria-hidden="true" />Ask the assistant</button>}
             <ExportButton workspaceId={workspaceId} disabled={saveState !== "saved"} />
             <AssumptionsDrawer assumptions={assumptions} open={assumptionsOpen} onOpenChange={setAssumptionsOpen} focus={assumptionFocus} />

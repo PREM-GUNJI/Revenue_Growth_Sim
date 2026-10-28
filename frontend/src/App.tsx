@@ -9,6 +9,7 @@ import { BoardPage } from "@/pages/board-page"
 import { ConjointPage } from "@/pages/conjoint-page"
 import { PersonasPage } from "@/pages/personas-page"
 import { EvidencePage } from "@/pages/evidence-page"
+import { ExecutivePage } from "@/pages/executive-page"
 import { HomePage } from "@/pages/home-page"
 import { SimulatorPage } from "@/pages/simulator-page"
 import { SituationPage } from "@/pages/situation-page"
@@ -36,6 +37,7 @@ function App({ user, onSignOut }: { user: AuthUser; onSignOut: () => void }) {
               <Route path="simulator" element={<SimulatorPage />} />
               <Route path="board" element={<BoardPage />} />
               <Route path="assistant" element={<AssistantPage />} />
+              <Route path="executive" element={<ExecutivePage />} />
               <Route path="evidence" element={<EvidencePage />} />
               <Route path="conjoint" element={<ConjointPage />} />
               <Route path="personas" element={<PersonasPage />} />

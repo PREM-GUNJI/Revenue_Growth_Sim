@@ -61,6 +61,8 @@ After signing in, `/` lists **cases**: shared, autosaved scenario sets (with con
 3. **Compare**: all options side by side in rupees with the engine's P10 to P90 range, why the profit moved (price, volume, cross-pack, promotion, trade, costs), the assumptions each result rests on, and a scenario ID that reproduces it.
 4. **Recommend**: the best option and the AI decision assistant. The assistant is also available from every step. It plans and explains; the engine calculates every number and an auditor checks that each claim traces to a tool result.
 
+**Executive brief** (`/w/:id/executive`) is the boardroom view of the same case: recommendation, up to three options, refusals without numbers, and caveats — no lever editors, assumptions drawer or agent chrome. Print the screen or use **Export deck** / **Brief**; the PowerPoint and HTML brief follow the same sparse narrative.
+
 The figures are the focal brand's. Competitors are modelled so cross-price effects show, but their profit is not yours. All money is synthetic INR (ADR-016). Every registered assumption carries a rationale, a valid range and a source or an honest "no external source" statement, shown in the assumptions drawer.
 
 A case can be exported as a PowerPoint from its header. The sidebar also has the **Agent runs** history and the **Audit and AI usage** page. AI cost is tokens times the rates in `backend/ai_pricing.py`; update them (and `RATE_VERSION`) when the provider changes prices. See ADR-015 and ADR-016.
