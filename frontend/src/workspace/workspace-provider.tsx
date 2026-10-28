@@ -7,7 +7,7 @@ import { baselineLever, newScenario, skuFor } from "@/lib/catalog"
 import type { Assumption, ScenarioResult } from "@/lib/types"
 import { getWorkspace, getWorkspaceScenarios, saveWorkspaceScenarios, updateWorkspace } from "@/lib/workspaces"
 import type { WorkspaceMeta } from "@/lib/workspaces"
-import { asUiAssumption, pickBest, toUiResults } from "./helpers"
+import { asUiAssumption, pickBest, toUiResults, withCaseCosts } from "./helpers"
 import { WorkspaceContext } from "./workspace-context"
 import type { SaveState, WorkspaceStatus } from "./workspace-context"
 
@@ -167,12 +167,12 @@ export function WorkspaceProvider({ workspaceId, children }: { workspaceId: stri
       const source = copyIndex === undefined ? undefined : current[copyIndex]
       const copy: ApiScenario = source ? JSON.parse(JSON.stringify(source)) as ApiScenario : newScenario("New scenario")
       if (source) copy.name = "Copy of " + source.name
-      return [...current, copy]
+      return [...current, withCaseCosts(copy, current)]
     })
   }
   /** Used by presets, research candidates and the agent: add a scenario and say where to find it. */
   function addExternal(scenario: ApiScenario) {
-    setScenarios((current) => [...current, scenario])
+    setScenarios((current) => [...current, withCaseCosts(scenario, current)])
     setNotice(`Added "${scenario.name}". It is evaluated by the engine on the comparison board.`)
   }
   async function addNearestSupported(scenarioId: string) {

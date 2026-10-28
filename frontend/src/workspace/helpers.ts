@@ -34,12 +34,34 @@ function bridgeOf(result: ApiScenarioResult): ScenarioBridge | undefined {
   return { price: r(b.price_cents), volume: r(b.volume_cents), crossPack: r(b.cross_pack_cents), promo: r(b.promo_cents), trade: r(b.trade_cents), cogs: r(b.cogs_cents), total: r(b.total_cents) }
 }
 
+type Reference = Pick<SituationTotals, "units" | "gsv" | "gp" | "gp_margin_pct">
+
+const hasCostShock = (s: ApiScenario) => Object.values(s.cost_shock ?? {}).some((v) => v !== 0)
+const noLeverMoves = (s: ApiScenario) => Object.values(s.levers).every((l) => l.price_index === 1 && l.promo_depth_pct === 0)
+
+/** A case whose first scenario only raises input costs ("absorb the cost") is measured against that scenario. */
+export function isCostReference(scenario: ApiScenario | undefined): boolean {
+  return !!scenario && hasCostShock(scenario) && noLeverMoves(scenario)
+}
+
+/** In a cost case, a new option starts from the case's costs, so it is compared like for like with the reference. */
+export function withCaseCosts(scenario: ApiScenario, scenarios: ApiScenario[]): ApiScenario {
+  const reference = scenarios[0]
+  return isCostReference(reference) && !hasCostShock(scenario) ? { ...scenario, cost_shock: { ...reference.cost_shock } } : scenario
+}
+
 /**
  * Turns engine results into what the pages show. Everything is about the focal brand (Aurora) and is measured
- * against the engine's own zero-change baseline, not against whichever scenario happens to be listed first.
+ * against the engine's own zero-change baseline. The one exception is a cost case (see `isCostReference`): there
+ * every option carries the new costs, so the reference is the engine's result for "new costs, no response".
  * Ranges are the engine's bands for the brand's total, never sums of per-pack bands.
  */
-export function toUiResults(raw: ApiScenarioResult[], inputs: ApiScenario[], baseline: SituationTotals): ScenarioResult[] {
+export function toUiResults(raw: ApiScenarioResult[], inputs: ApiScenario[], engineBaseline: SituationTotals): ScenarioResult[] {
+  const first = raw[0]
+  const baseline: Reference = isCostReference(inputs[0]) && first && first.status !== "REFUSED" && first.focal
+    ? { units: first.focal.volume.value, gsv: first.focal.gsv.value, gp: first.focal.gp.value,
+        gp_margin_pct: first.focal.nsv.value ? first.focal.gp.value / first.focal.nsv.value * 100 : 0 }
+    : engineBaseline
   return raw.map((result, index) => {
     const input = inputs[index]
     const common = { scenarioId: result.scenario_id, resultHash: result.result_hash, name: input.name, status: result.status, isBaseline: index === 0, source: input.source, assumptionIds: result.assumption_ids }

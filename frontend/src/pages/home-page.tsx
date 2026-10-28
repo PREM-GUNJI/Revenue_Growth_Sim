@@ -3,12 +3,14 @@ import type { FormEvent } from "react"
 import { Link, useNavigate, useOutletContext } from "react-router-dom"
 import { evaluateScenarios, getSituation } from "@/lib/api"
 import type { Situation } from "@/lib/api"
-import { newScenario, signed, signedRupees } from "@/lib/catalog"
+import { PACKS, signed, signedRupees } from "@/lib/catalog"
 import { createWorkspace, getHubSummary, getWorkspaceScenarios, listWorkspaces, updateWorkspace } from "@/lib/workspaces"
 import type { HubSummary, WorkspaceMeta } from "@/lib/workspaces"
 import type { AppOutletContext } from "@/layout/app-layout"
 import { canEdit, useRole } from "@/lib/user-context"
-import { initialScenarios, pickBest, toUiResults } from "@/workspace/helpers"
+import { pickBest, toUiResults } from "@/workspace/helpers"
+import { DEFAULT_INPUT, TEMPLATES } from "@/workspace/templates"
+import type { TemplateInput } from "@/workspace/templates"
 
 const GUARDRAIL_PCT = 5
 
@@ -101,17 +103,24 @@ function WorkspaceCard({ workspace, onChanged }: { workspace: WorkspaceMeta; onC
 
 function NewWorkspaceForm({ onCancel }: { onCancel?: () => void }) {
   const navigate = useNavigate()
-  const [name, setName] = useState("")
-  const [description, setDescription] = useState("")
-  const [starter, setStarter] = useState<"blank" | "demo">("demo")
+  const [templateId, setTemplateId] = useState("example")
+  const [input, setInput] = useState<TemplateInput>(DEFAULT_INPUT)
+  // Name and question follow the chosen template until the user types their own.
+  const [nameOverride, setNameOverride] = useState<string>()
+  const [descriptionOverride, setDescriptionOverride] = useState<string>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
+  const template = TEMPLATES.find((t) => t.id === templateId) ?? TEMPLATES[0]
+  const name = nameOverride ?? template.name(input)
+  const description = descriptionOverride ?? template.question(input)
+  const costValid = Number.isFinite(input.costPct) && input.costPct >= 1 && input.costPct <= 50
   async function submit(event: FormEvent) {
     event.preventDefault()
     if (!name.trim()) { setError("Give the case a name"); return }
+    if (template.needs.includes("cost") && !costValid) { setError("Enter a cost increase between 1% and 50%"); return }
     setBusy(true); setError(undefined)
     try {
-      const created = await createWorkspace({ name: name.trim(), description: description.trim(), scenarios: starter === "demo" ? initialScenarios : [newScenario("Baseline")] })
+      const created = await createWorkspace({ name: name.trim(), description: description.trim(), scenarios: template.build(input) })
       navigate(`/w/${created.id}`)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not create the case")
@@ -121,14 +130,30 @@ function NewWorkspaceForm({ onCancel }: { onCancel?: () => void }) {
   return (
     <form onSubmit={submit} className="space-y-4 rounded-xl border bg-card p-5" aria-label="New case">
       <h2 className="font-display text-lg font-semibold">New case</h2>
-      <label className="block text-sm font-medium">Name
-        <input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} placeholder="e.g. Input cost response, Q3" className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm font-normal" /></label>
-      <label className="block text-sm font-medium">Business question <span className="font-normal text-muted-foreground">(what are you trying to decide?)</span>
-        <textarea value={description} onChange={(e) => setDescription(e.target.value)} maxLength={500} rows={3} placeholder="e.g. Input costs are up 8%. Which price, pack and promotion moves protect gross profit without losing more than 5% volume?" className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm font-normal" /></label>
-      <fieldset className="space-y-2 text-sm"><legend className="font-medium">Start from</legend>
-        <label className="flex items-start gap-2"><input type="radio" name="starter" checked={starter === "demo"} onChange={() => setStarter("demo")} className="mt-1" /><span>Example options <span className="text-muted-foreground">(a price move, a promotion, a combination, one that loses profit and one the engine refuses)</span></span></label>
-        <label className="flex items-start gap-2"><input type="radio" name="starter" checked={starter === "blank"} onChange={() => setStarter("blank")} className="mt-1" /><span>Blank <span className="text-muted-foreground">(baseline only)</span></span></label>
+      <fieldset className="space-y-2 text-sm"><legend className="font-medium">What do you want to decide?</legend>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {TEMPLATES.map((t) => (
+            <label key={t.id} className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 hover:bg-secondary/60 ${t.id === templateId ? "border-primary ring-1 ring-primary" : ""}`}>
+              <input type="radio" name="template" value={t.id} checked={t.id === templateId} onChange={() => setTemplateId(t.id)} className="mt-1" />
+              <span><span className="font-medium">{t.title}</span><span className="block text-muted-foreground">{t.blurb}</span></span>
+            </label>
+          ))}
+        </div>
       </fieldset>
+      {template.needs.length > 0 && <div className="flex flex-wrap gap-4 text-sm">
+        {template.needs.includes("pack") && <label className="font-medium">Pack
+          <select value={input.pack} onChange={(e) => setInput({ ...input, pack: e.target.value })} className="mt-1 block rounded-md border bg-background px-3 py-2 font-normal">
+            {PACKS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+          </select></label>}
+        {template.needs.includes("cost") && <label className="font-medium">Input cost increase (%)
+          <input type="number" min={1} max={50} step={1} value={Number.isFinite(input.costPct) ? input.costPct : ""} onChange={(e) => setInput({ ...input, costPct: e.target.valueAsNumber })} className="mt-1 block w-28 rounded-md border bg-background px-3 py-2 font-normal" />
+          <span className="mt-1 block text-xs font-normal text-muted-foreground">Applied to aluminium, PET and sugar</span></label>}
+      </div>}
+      {template.build(DEFAULT_INPUT).length > 1 && <p className="text-xs text-muted-foreground">Starts with {template.build(DEFAULT_INPUT).length} options, including one that loses profit and one outside our data that the engine refuses. You can change them all.</p>}
+      <label className="block text-sm font-medium">Name
+        <input value={name} onChange={(e) => setNameOverride(e.target.value)} maxLength={120} placeholder="e.g. Input cost response, Q3" className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm font-normal" /></label>
+      <label className="block text-sm font-medium">Business question <span className="font-normal text-muted-foreground">(what are you trying to decide?)</span>
+        <textarea value={description} onChange={(e) => setDescriptionOverride(e.target.value)} maxLength={500} rows={3} placeholder="e.g. Input costs are up 8%. Which price, pack and promotion moves protect gross profit without losing more than 5% volume?" className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm font-normal" /></label>
       {error && <p role="alert" className="text-sm text-loss">{error}</p>}
       <div className="flex items-center gap-2">
         <button type="submit" disabled={busy} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:brightness-110 disabled:opacity-60">{busy ? "Creating…" : "Create case"}</button>
@@ -167,7 +192,7 @@ export function HomePage() {
       </div>
 
       {error && <div role="alert" className="rounded-md border border-loss/40 bg-loss/5 p-3 text-sm text-loss">{error}</div>}
-      {editor && (creating || empty) && <div className="max-w-xl"><NewWorkspaceForm onCancel={empty ? undefined : () => setCreating(false)} /></div>}
+      {editor && (creating || empty) && <div className="max-w-3xl"><NewWorkspaceForm onCancel={empty ? undefined : () => setCreating(false)} /></div>}
 
       <section aria-label="Cases" className="space-y-4">
         <div className="flex items-center justify-between">

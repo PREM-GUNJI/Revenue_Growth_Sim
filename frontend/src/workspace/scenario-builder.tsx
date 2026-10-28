@@ -1,7 +1,13 @@
 import { SupportBar } from "@/components/support-bar"
 import { PACKS, baselineLever, inr, packOf, packShort, signed, skuFor } from "@/lib/catalog"
 import { useDetailMode } from "@/lib/preferences"
+import { isCostReference } from "./helpers"
+import type { ApiScenario } from "@/lib/api"
 import { useWorkspace } from "./workspace-context"
+
+const COST_NAMES: Record<string, string> = { aluminium_pct: "aluminium", pet_resin_pct: "PET", sugar_pct: "sugar" }
+const costShockText = (scenario: ApiScenario) => Object.entries(scenario.cost_shock ?? {}).filter(([, v]) => v !== 0)
+  .map(([k, v]) => `${COST_NAMES[k] ?? k} ${signed(v, 0)}`).join(", ")
 
 const PRICE_MIN = 0.8, PRICE_MAX = 1.6, DEPTH_MAX = 50
 
@@ -15,6 +21,7 @@ export function ScenarioBuilder() {
   const [priceLo, priceHi] = envelope?.price_index_p1_p99[sku] ?? [PRICE_MIN, PRICE_MAX]
   const depthHi = envelope ? Math.max(...envelope.depth_steps) : DEPTH_MAX
   const mechanics = (envelope?.mechanics ?? ["TPR", "feature_display", "BOGO"]).filter((m) => m !== "none")
+  const costCase = isCostReference(scenarios[0])
   return (
     <aside className="space-y-4 lg:sticky lg:top-24 lg:max-h-[calc(100svh-7rem)] lg:overflow-y-auto lg:pr-1" aria-label="Scenario builder">
       <div><h2 className="font-display text-xl font-semibold">Options</h2><p className="text-sm text-muted-foreground">Pick a pack and set its price and promotion. The green part of each slider is where we have data; past it we won't guess, so there are no numbers.</p></div>
@@ -32,7 +39,9 @@ export function ScenarioBuilder() {
             {index > 0 && <button type="button" onClick={() => addScenario(index)} className="rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">Duplicate</button>}
             {index > 0 && <button type="button" onClick={() => setScenarios((current) => current.filter((_, i) => i !== index))} className="rounded px-1.5 py-1 text-xs text-loss hover:bg-loss/10">Remove</button>}
           </div>
-          {index === 0 ? <p className="px-1 text-xs text-muted-foreground">Current price, no promotion. Every other scenario is measured against this one.</p> : <>
+          {index === 0 ? <p className="px-1 text-xs text-muted-foreground">{costCase
+            ? `Today's prices with the new input costs (${costShockText(scenario)}). Every other option carries the same costs and is measured against this one.`
+            : "Current price, no promotion. Every other scenario is measured against this one."}</p> : <>
             <label className="block text-xs text-muted-foreground"><span className="flex justify-between"><span>Shelf price, {packShort(activePack)}</span><span className="num text-sm font-semibold text-foreground">{price(lever.price_index)} <span className="font-normal text-muted-foreground">({signed((lever.price_index - 1) * 100, 0)})</span></span></span>
               <input aria-label="Shelf price" type="range" min={PRICE_MIN} max={PRICE_MAX} step="0.01" value={lever.price_index} onChange={(event) => updateLever(index, { price_index: Number(event.target.value) })} />
               <SupportBar min={PRICE_MIN} max={PRICE_MAX} lo={priceLo} hi={priceHi} />
