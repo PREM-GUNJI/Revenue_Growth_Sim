@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 API_URL = "http://127.0.0.1:8000/healthz"
 UI_URL = "http://127.0.0.1:5173"
 TEST_EMAIL, TEST_PASSWORD = "e2e@example.com", "e2e-password-1"
+VIEWER_EMAIL = "viewer@example.com"
 
 
 def wait_for(url: str, process: subprocess.Popen[bytes], label: str) -> None:
@@ -76,7 +77,9 @@ def ui_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     upgrade_database(engine)
     with Session(engine) as session:
         session.add(User(id="e2e-user", email=TEST_EMAIL, display_name="E2E User",
-                         password_hash=hash_password(TEST_PASSWORD), is_active=True))
+                         password_hash=hash_password(TEST_PASSWORD), is_active=True, role="admin"))
+        session.add(User(id="e2e-viewer", email=VIEWER_EMAIL, display_name="E2E Viewer",
+                         password_hash=hash_password(TEST_PASSWORD), is_active=True, role="viewer"))
         session.commit()
     engine.dispose()
     env = os.environ.copy()

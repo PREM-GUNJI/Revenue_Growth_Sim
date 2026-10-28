@@ -41,9 +41,9 @@ from backend.api.schemas import (
 from backend.assumptions.assumptions import ASSUMPTIONS, OWN_ELASTICITY_BY_FORMAT, SKUS
 from backend.audit import record_agent_usage
 from backend.audit import router as audit_router
-from backend.auth import CurrentUser, require_user
+from backend.auth import ANALYST_ONLY, AnalystUser, require_user
 from backend.auth import router as auth_router
-from backend.db import database_status, list_runs, save_run
+from backend.db import User, database_status, list_runs, save_run
 from backend.engine.batch import ENGINE_VERSION, _data_hash, _support_envelope, evaluate_batch
 from backend.engine.explain import assumption_ids_for, focal_bridge
 from backend.engine.ids import expand_scenario, scenario_id
@@ -88,17 +88,17 @@ async def pricing_methodologies() -> dict:
             "priority_2": ["Conjoint simulation"], "optional": ["BPTO", "Price Ladder"]}
 
 
-@app.post("/pricing/consumer-evidence")
+@app.post("/pricing/consumer-evidence", dependencies=[ANALYST_ONLY])
 async def consumer_evidence(request: ConsumerEvidenceIn) -> dict:
     return generate_consumers(request.seed, request.sample_size, request.personas)
 
 
-@app.post("/pricing/consumer-summary")
+@app.post("/pricing/consumer-summary", dependencies=[ANALYST_ONLY])
 async def consumer_summary(request: ConsumerEvidenceIn) -> dict:
     return summarize_consumers(generate_consumers(request.seed, request.sample_size, request.personas))
 
 
-@app.post("/pricing/research")
+@app.post("/pricing/research", dependencies=[ANALYST_ONLY])
 async def pricing_research(request: ResearchIn) -> dict:
     evidence = generate_consumers(request.seed, request.sample_size, request.personas)
     result = run_research(request.methodology, evidence, request.prices or None, request.pack)
@@ -110,7 +110,7 @@ def get_persona_llm() -> OpenAILLM:
     return OpenAILLM()
 
 
-def _persona_call(user: CurrentUser, label: str, work):
+def _persona_call(user: User, label: str, work):
     trace_id = uuid4().hex
     llm = None
     try:
@@ -126,7 +126,7 @@ def _persona_call(user: CurrentUser, label: str, work):
 
 
 @app.post("/pricing/personas/design")
-def personas_design(request: PersonaDesignIn, user: CurrentUser) -> dict:
+def personas_design(request: PersonaDesignIn, user: AnalystUser) -> dict:
     """The model proposes a persona mix. It is validated, never repaired; the numbers come later from the seeded generator."""
     def work(llm):
         mix = design_mix(llm, request.brief)
@@ -134,14 +134,14 @@ def personas_design(request: PersonaDesignIn, user: CurrentUser) -> dict:
     return _persona_call(user, "persona design: " + request.brief[:150], work)
 
 
-@app.post("/pricing/personas/report")
+@app.post("/pricing/personas/report", dependencies=[ANALYST_ONLY])
 def personas_report(request: PersonaReportIn) -> dict:
     consumers = generate_consumers(request.seed, request.sample_size, request.mix)
     return persona_report(consumers, request.mix, request.pack, request.prices or None)
 
 
 @app.post("/pricing/personas/voices")
-def personas_voices(request: PersonaVoicesIn, user: CurrentUser) -> dict:
+def personas_voices(request: PersonaVoicesIn, user: AnalystUser) -> dict:
     """Illustrative first-person reactions. Numbers in them must already be in the evidence; they feed no calculation."""
     # Acceptance is computed at exactly the price asked about, so a quote never leans on a nearby tested price.
     report = persona_report(generate_consumers(request.seed, request.sample_size, request.mix), request.mix,
@@ -154,7 +154,7 @@ async def pricing_conjoint_defaults() -> dict:
     return conjoint_defaults()
 
 
-@app.post("/pricing/conjoint")
+@app.post("/pricing/conjoint", dependencies=[ANALYST_ONLY])
 async def pricing_conjoint(request: ConjointIn) -> dict:
     try:
         result = conjoint_simulation(generate_consumers(request.seed, request.sample_size, request.personas),
@@ -164,7 +164,7 @@ async def pricing_conjoint(request: ConjointIn) -> dict:
     return {**asdict(result), "label": LABEL, "statement": CONJOINT_STATEMENT}
 
 
-@app.post("/pricing/research-to-scenarios")
+@app.post("/pricing/research-to-scenarios", dependencies=[ANALYST_ONLY])
 async def research_candidates(request: ResearchToScenariosIn) -> dict:
     evidence = generate_consumers(request.seed, request.sample_size, request.personas)
     result = run_research(request.methodology, evidence, request.prices or None, request.pack)
@@ -172,7 +172,7 @@ async def research_candidates(request: ResearchToScenariosIn) -> dict:
         result, request.brand, request.promotion_depth_pct)}
 
 
-@app.post("/pricing/conjoint-to-scenarios")
+@app.post("/pricing/conjoint-to-scenarios", dependencies=[ANALYST_ONLY])
 async def conjoint_candidates(request: ConjointToScenariosIn) -> dict:
     try:
         result = conjoint_simulation(generate_consumers(request.seed, request.sample_size, request.personas),
@@ -221,7 +221,7 @@ async def database_health() -> dict[str, str]:
     return {"status": database_status()}
 
 
-@app.post("/scenario-runs")
+@app.post("/scenario-runs", dependencies=[ANALYST_ONLY])
 async def create_scenario_run(request: ExportIn) -> dict:
     result = asdict(
         evaluate_batch([request.scenario], build_param_draws(k=request.k, seed=request.seed))[0]
@@ -266,7 +266,7 @@ async def get_scenario_runs(limit: int = 100) -> list[dict]:
 
 
 @app.post("/agent/run")
-def run_agent(request: AgentRunIn, user: CurrentUser) -> dict:
+def run_agent(request: AgentRunIn, user: AnalystUser) -> dict:
     import os
     from pathlib import Path
     from uuid import uuid4

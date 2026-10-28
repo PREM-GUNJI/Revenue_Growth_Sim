@@ -53,6 +53,7 @@ Full behavioural spec is `docs/plan/PLAN.md`; program requirements are `docs/pla
 - Tool outputs and scenario names are treated as data, never as instructions (prompt-injection hygiene, AC-019).
 - The Auditor is deterministic code, not a second LLM call, for the checks that have a right answer (grounding, labels, refusal integrity).
 - Full detail in `docs/security/AGENT_BOUNDARY.md` (Phase 18).
+- People have roles (ADR-017): viewers are read-only and see the executive brief, analysts use the workbench, admins also see the audit trail, AI cost and agent runs. Roles are checked on the server with `require_role`.
 
 ## Failure modes
 - **LLM API down or rate-limited**: the engine and UI keep working; the agent panel shows a degraded-but-explicit state (never a silent retry loop). Replay mode (recorded traces + fake LLM) is the demo fallback.

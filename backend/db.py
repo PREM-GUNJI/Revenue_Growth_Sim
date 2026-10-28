@@ -46,6 +46,8 @@ class User(Base):
     display_name: Mapped[str] = mapped_column(String(200))
     password_hash: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # viewer: executive brief only, read-only; analyst: the workbench; admin: workbench plus governance.
+    role: Mapped[str] = mapped_column(String(16), default="analyst", server_default="analyst")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 

@@ -20,8 +20,10 @@ def _signed_in(request: pytest.FixtureRequest):
         yield
         return
     app.dependency_overrides[require_user] = lambda: None
+    # Admin, so the governance and write routes these tests already cover stay reachable; roles are tested in test_roles.py.
     app.dependency_overrides[current_user] = lambda: db.User(
-        id="test-user", email="test@example.com", display_name="Test User", password_hash="x", is_active=True)
+        id="test-user", email="test@example.com", display_name="Test User", password_hash="x", is_active=True,
+        role="admin")
     yield
     app.dependency_overrides.pop(require_user, None)
     app.dependency_overrides.pop(current_user, None)

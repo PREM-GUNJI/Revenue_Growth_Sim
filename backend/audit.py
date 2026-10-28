@@ -16,7 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend import activity, ai_pricing, db
-from backend.auth import CurrentUser
+from backend.auth import AdminUser
 
 router = APIRouter(tags=["audit"])
 TRACE_ID = re.compile(r"^[0-9a-f]{32}$")
@@ -69,7 +69,7 @@ def record_agent_usage(user_email: str, workspace_id: str | None, trace_id: str,
 
 
 @router.get("/audit/log")
-def audit_log(user: CurrentUser, user_email: str | None = None, action: str | None = None,
+def audit_log(user: AdminUser, user_email: str | None = None, action: str | None = None,
               workspace_id: str | None = None, start: datetime | None = None, end: datetime | None = None,
               limit: int = Query(50, ge=1, le=PAGE_MAX), offset: int = Query(0, ge=0)) -> dict[str, Any]:
     start, end = _window(start, end)
@@ -102,7 +102,7 @@ def _bucket(rows: list[db.AiUsage]) -> dict[str, Any]:
 
 
 @router.get("/audit/ai-usage")
-def ai_usage(user: CurrentUser, workspace_id: str | None = None, start: datetime | None = None,
+def ai_usage(user: AdminUser, workspace_id: str | None = None, start: datetime | None = None,
              end: datetime | None = None) -> dict[str, Any]:
     start, end = _window(start, end)
     conditions = []
@@ -137,7 +137,7 @@ def ai_usage(user: CurrentUser, workspace_id: str | None = None, start: datetime
 
 
 @router.get("/agent/runs")
-def agent_runs(user: CurrentUser, workspace_id: str | None = None, limit: int = Query(50, ge=1, le=PAGE_MAX)) -> list[dict[str, Any]]:
+def agent_runs(user: AdminUser, workspace_id: str | None = None, limit: int = Query(50, ge=1, le=PAGE_MAX)) -> list[dict[str, Any]]:
     """Past agent runs, newest first, from the audit trail (goal, who, where, tokens, cost)."""
     with _session() as session:
         query = select(db.ActivityLog).where(db.ActivityLog.action == "agent.run").order_by(db.ActivityLog.at.desc()).limit(limit)
@@ -159,7 +159,7 @@ def agent_runs(user: CurrentUser, workspace_id: str | None = None, limit: int = 
 
 
 @router.get("/agent/runs/{trace_id}")
-def agent_run_detail(trace_id: str, user: CurrentUser) -> dict[str, Any]:
+def agent_run_detail(trace_id: str, user: AdminUser) -> dict[str, Any]:
     """One saved trace: tool calls (names, ids, hashes) and the final labelled answer with its audit verdict."""
     if not TRACE_ID.fullmatch(trace_id):
         raise HTTPException(status_code=404, detail="Trace not found")

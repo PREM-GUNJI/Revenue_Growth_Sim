@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend import activity, db, export
-from backend.auth import CurrentUser
+from backend.auth import AnalystUser, CurrentUser
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 MAX_SCENARIOS = 200
@@ -108,7 +108,7 @@ def list_workspaces(user: CurrentUser, include_archived: bool = False) -> list[d
 
 
 @router.post("", status_code=201)
-def create_workspace(body: WorkspaceIn, user: CurrentUser) -> dict[str, Any]:
+def create_workspace(body: WorkspaceIn, user: AnalystUser) -> dict[str, Any]:
     now = datetime.now(UTC)
     workspace = db.Workspace(id=uuid4().hex, name=body.name, description=body.description.strip(),
                              created_by=user.email, updated_by=user.email, created_at=now, updated_at=now, archived=False)
@@ -129,7 +129,7 @@ def get_workspace(workspace_id: str, user: CurrentUser) -> dict[str, Any]:
 
 
 @router.patch("/{workspace_id}")
-def update_workspace(workspace_id: str, body: WorkspacePatch, user: CurrentUser) -> dict[str, Any]:
+def update_workspace(workspace_id: str, body: WorkspacePatch, user: AnalystUser) -> dict[str, Any]:
     changes = body.model_dump(exclude_none=True)
     if "name" in changes:
         changes["name"] = changes["name"].strip()
@@ -158,7 +158,7 @@ def get_scenarios(workspace_id: str, user: CurrentUser) -> dict[str, Any]:
 
 
 @router.put("/{workspace_id}/scenarios")
-def put_scenarios(workspace_id: str, body: ScenariosIn, user: CurrentUser) -> dict[str, Any]:
+def put_scenarios(workspace_id: str, body: ScenariosIn, user: AnalystUser) -> dict[str, Any]:
     now = datetime.now(UTC)
     with _session() as session:
         workspace = _get(session, workspace_id)

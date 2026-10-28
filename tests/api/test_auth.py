@@ -42,7 +42,7 @@ def test_health_endpoints_stay_public(client: TestClient) -> None:
 def test_login_sets_httponly_cookie_and_unlocks_api(client: TestClient) -> None:
     response = login(client)
     assert response.status_code == 200
-    assert response.json()["user"] == {"email": EMAIL, "display_name": "Test User"}
+    assert response.json()["user"] == {"email": EMAIL, "display_name": "Test User", "role": "analyst"}
     cookie = response.headers["set-cookie"].lower()
     assert "httponly" in cookie and "samesite=lax" in cookie
     assert client.get("/auth/me").json()["user"]["email"] == EMAIL

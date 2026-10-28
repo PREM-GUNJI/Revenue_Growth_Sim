@@ -12,6 +12,7 @@ from backend.migrations import (
     v002_users,
     v003_workspaces,
     v004_ai_usage_cached_tokens,
+    v005_user_roles,
 )
 
 Migration = tuple[str, Callable[[Connection], None]]
@@ -27,6 +28,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     ("002_users", v002_users.upgrade),
     ("003_workspaces", v003_workspaces.upgrade),
     ("004_ai_usage_cached_tokens", v004_ai_usage_cached_tokens.upgrade),
+    ("005_user_roles", v005_user_roles.upgrade),
 )
 
 

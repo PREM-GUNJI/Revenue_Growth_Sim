@@ -21,6 +21,6 @@ Consequences:
 - **AI usage and cost** (`/audit/ai-usage`): `OpenAILLM` adds up the tokens of every call a run makes; `/agent/run` writes one `ai_usage` row even when a later call fails. Cost is tokens times the rates in `backend/ai_pricing.py` (gpt-5.5 Standard tier, $5.00 input, $0.50 cached input, $30.00 output per 1M tokens, from the provider's pricing page fetched 2026-10-07), computed server-side and stored with its `rate_version`. A model with no rate is stored with cost NULL and shown as "rate not set", never as $0. Scripted runs record 0 tokens.
 - **Export** (`POST /workspaces/{id}/export`): a PowerPoint built from `evaluate_batch` at request time. A refused scenario appears with its refusal reasons and no figures; if the baseline is refused there are no comparisons at all. Scenario ids and result hashes are on a traceability slide.
 - Rates change. Update `RATES` and bump `RATE_VERSION` when they do; old rows keep the version they were priced with. The pricing summary came from a fetched page, so check it against the provider's page before relying on a figure for billing.
-- The audit and AI-usage pages are visible to every signed-in user until roles exist.
+- The audit and AI-usage pages are admin-only since ADR-017.
 
 Owner / date: user / 2026-10-07

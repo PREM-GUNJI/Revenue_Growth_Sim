@@ -12,6 +12,7 @@ import os
 import secrets
 import time
 from collections import defaultdict, deque
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
@@ -33,6 +34,7 @@ REMEMBER_SECONDS = 30 * 24 * 60 * 60
 MAX_FAILURES = 5
 FAILURE_WINDOW_SECONDS = 15 * 60
 PUBLIC_PATHS = frozenset({"/auth/login", "/healthz", "/readyz"})
+ROLES = ("viewer", "analyst", "admin")
 _DEV_SECRET_FILE = Path(__file__).resolve().parent.parent / ".auth_dev_secret"
 
 _hasher = PasswordHasher()
@@ -78,7 +80,7 @@ def _verify(stored_hash: str, password: str) -> bool:
 
 
 def _public_user(user: db.User) -> dict[str, str]:
-    return {"email": user.email, "display_name": user.display_name}
+    return {"email": user.email, "display_name": user.display_name, "role": user.role or "analyst"}
 
 
 def _factory():
@@ -88,17 +90,24 @@ def _factory():
     return factory
 
 
-def upsert_user(email: str, password: str, display_name: str) -> str:
-    """Create the user, or reset the password and name if the email already exists."""
+def upsert_user(email: str, password: str, display_name: str, role: str | None = None) -> str:
+    """Create the user, or reset the password and name if the email already exists.
+
+    A new user is an analyst unless `role` says otherwise; an existing user keeps their role unless `role` is given.
+    """
+    if role is not None and role not in ROLES:
+        raise ValueError(f"role must be one of {', '.join(ROLES)}")
     email = normalize_email(email)
     with _factory()() as session:
         user = session.scalar(select(db.User).where(db.User.email == email))
         if user is None:
             session.add(db.User(id=str(uuid4()), email=email, display_name=display_name,
-                                password_hash=hash_password(password), is_active=True))
+                                password_hash=hash_password(password), is_active=True, role=role or "analyst"))
             outcome = "created"
         else:
             user.display_name, user.password_hash, user.is_active = display_name, hash_password(password), True
+            if role is not None:
+                user.role = role
             outcome = "updated"
         session.commit()
     return outcome
@@ -153,6 +162,20 @@ async def current_user(request: Request) -> db.User:
 
 
 CurrentUser = Annotated[db.User, Depends(current_user)]
+
+
+def require_role(*roles: str) -> Callable[..., Awaitable[db.User]]:
+    """Dependency factory: 403 unless the signed-in user has one of `roles`. Enforced on the server, not just hidden in the UI."""
+    async def dependency(user: CurrentUser) -> db.User:
+        if (user.role or "analyst") not in roles:
+            raise HTTPException(status_code=403, detail="Your role does not allow this action")
+        return user
+    return dependency
+
+
+AnalystUser = Annotated[db.User, Depends(require_role("analyst", "admin"))]
+AdminUser = Annotated[db.User, Depends(require_role("admin"))]
+ANALYST_ONLY = Depends(require_role("analyst", "admin"))
 
 
 @router.post("/login")
