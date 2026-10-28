@@ -93,6 +93,15 @@ class GoalSeekIn(BaseModel):
     top: int = Field(default=5, ge=1, le=20)
 
 
+class SimilarRunsIn(BaseModel):
+    """Historical similarity only — not nearest_supported and never softens REFUSED."""
+
+    scenario: Scenario | None = None
+    query_text: str | None = Field(default=None, max_length=2000)
+    limit: int = Field(default=10, ge=1, le=50)
+    workspace_id: str | None = Field(default=None, max_length=64)
+
+
 class PersonaDesignIn(BaseModel):
     brief: str = Field(min_length=3, max_length=1000)
 

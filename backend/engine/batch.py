@@ -17,6 +17,7 @@ from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 
+import pandas as pd
 import numpy as np
 
 from backend.assumptions import registry
@@ -26,6 +27,8 @@ from backend.engine.ids import ExpandedScenario, expand_scenario, result_hash, s
 from backend.engine.margin import Bridge, _cents_array, cogs_per_unit
 from backend.engine.scenario import CostShock, Scenario
 from backend.engine.support import SupportEnvelope, nearest_supported
+from backend.markets.context import DEFAULT_MARKET_ID, get_active_market_id, use_market
+from backend.markets.packs import load_market
 from backend.model.backtest import spec_hash
 from backend.model.baselines import Baselines, compute_baselines, national_weekly_series
 from backend.model.envelope_build import build_joint_coverage
@@ -36,35 +39,72 @@ from backend.model.spec import (
     cross_price_log_effect,
 )
 
-ENGINE_VERSION = "1.2.0"  # 1.2.0: focal-brand totals with per-draw bands; INR money scale
+ENGINE_VERSION = "1.3.1"  # 1.3.1: supported-only tensors + content-addressed result cache
 SKU_FORMAT = {s["sku_id"]: s["format"] for s in SKUS}
 FOCAL_METRICS = ("volume", "gsv", "nsv", "gp")
 _FOCAL_MASK = np.array([1.0 if s["brand"] == FOCAL_BRAND else 0.0 for s in SKUS])  # (N_SKUS,)
+_ROOT = Path(__file__).resolve().parents[2]
 
 
-@lru_cache(maxsize=1)
+def _market_dir(market_id: str) -> Path:
+    return _ROOT / "data" / "markets" / market_id
+
+
+@lru_cache(maxsize=8)
+def _raw_data_for(market_id: str):
+    """Synthetic history for one market (seed 42). Prefer on-disk parquet when present."""
+    parquet = _market_dir(market_id) / "data.parquet"
+    if not parquet.exists() and market_id == DEFAULT_MARKET_ID:
+        parquet = _ROOT / "data" / "data.parquet"
+    if parquet.exists():
+        return pd.read_parquet(parquet)
+    market = load_market(market_id)
+    with use_market(market):
+        return generate(42, market=market)
+
+
 def _raw_data():
-    """The synthetic history (seed 42), generated once and shared; callers must not modify it."""
-    return generate(42)
+    return _raw_data_for(get_active_market_id())
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=8)
+def _baseline_for(market_id: str) -> Baselines:
+    market = load_market(market_id)
+    with use_market(market):
+        df = _raw_data_for(market_id)
+        weekly = national_weekly_series(df)
+        reference_draws = build_param_draws(k=0, seed=1000)  # only the central row is used
+        return compute_baselines(weekly, df, reference_draws)
+
+
 def _baseline() -> Baselines:
-    df = _raw_data()
-    weekly = national_weekly_series(df)
-    reference_draws = build_param_draws(k=0, seed=1000)  # only the central row is used
-    return compute_baselines(weekly, df, reference_draws)
+    return _baseline_for(get_active_market_id())
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=8)
+def _data_hash_for(market_id: str) -> str:
+    path = _market_dir(market_id) / "data_manifest.json"
+    if not path.exists() and market_id == DEFAULT_MARKET_ID:
+        path = _ROOT / "data" / "data_manifest.json"
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))["data_sha256"]
+    # No on-disk manifest yet: hash a deterministic digest of the generated frame.
+    df = _raw_data_for(market_id)
+    payload = pd.util.hash_pandas_object(df, index=True).to_numpy().tobytes()
+    return hashlib.sha256(payload).hexdigest()
+
+
 def _data_hash() -> str:
-    manifest = json.loads((Path(__file__).resolve().parents[2] / "data" / "data_manifest.json").read_text())
-    return manifest["data_sha256"]
+    return _data_hash_for(get_active_market_id())
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=8)
+def _support_envelope_for(market_id: str) -> SupportEnvelope:
+    return SupportEnvelope(_baseline_for(market_id), build_joint_coverage(_raw_data_for(market_id)))
+
+
 def _support_envelope() -> SupportEnvelope:
-    return SupportEnvelope(_baseline(), build_joint_coverage(_raw_data()))
+    return _support_envelope_for(get_active_market_id())
 
 
 def _model_hash(draws: ParamDraws) -> str:
@@ -132,13 +172,76 @@ class ScenarioResult:
     nearest_supported_scenario: Scenario | None
 
 
-def _evaluate_chunk(
-    scenarios: list[Scenario], draws: ParamDraws, expanded: list[ExpandedScenario]
+# Content-addressed ScenarioResult reuse within a process (A-038). Cleared when full.
+_RESULT_CACHE: dict[tuple, ScenarioResult] = {}
+
+
+def clear_result_cache() -> None:
+    """Drop the process-local result cache (tests and market switches)."""
+    _RESULT_CACHE.clear()
+
+
+def _scenario_id_for(item: ExpandedScenario, ids_by_key: dict[tuple, str]) -> str:
+    key = (
+        item.schema_version,
+        tuple((sku, lv.price_bp, lv.depth_pct, lv.mechanic, lv.weeks_per_month)
+              for sku, lv in item.levers.items()),
+        tuple(sorted(item.cost_shock.items())),
+    )
+    sid = ids_by_key.get(key)
+    if sid is None:
+        sid = scenario_id(item)
+        ids_by_key[key] = sid
+    return sid
+
+
+def _refused_result(
+    sid: str,
+    scenario: Scenario,
+    decision,
+    envelope: SupportEnvelope,
+    draws: ParamDraws,
+    mh: str,
+    dh: str,
+    rvh: str,
+) -> ScenarioResult:
+    reasons = [reason.message for reason in decision.reasons]
+    rh = result_hash(
+        scenario_id_=sid,
+        engine_version=ENGINE_VERSION,
+        model_hash=mh,
+        data_hash=dh,
+        registry_values_hash=rvh,
+        k=draws.k,
+        seed=draws.seed,
+        status="REFUSED",
+        reasons=reasons,
+        outputs_quantized={},
+    )
+    suggested = nearest_supported(scenario, envelope).scenario
+    return ScenarioResult(
+        scenario_id=sid, status="REFUSED", focal={}, volume={}, gsv={}, nsv={}, gp={},
+        portfolio_gp=None, bridge={}, retailer_risk_skus=[], result_hash=rh,
+        refusal_reasons=[vars(reason) for reason in decision.reasons],
+        nearest_supported_scenario=suggested,
+    )
+
+
+def _evaluate_supported_tensors(
+    scenarios: list[Scenario],
+    draws: ParamDraws,
+    expanded: list[ExpandedScenario],
+    decisions: list,
+    scenario_ids: list[str],
+    mh: str,
+    dh: str,
+    rvh: str,
 ) -> list[ScenarioResult]:
+    """Volume/GSV/NSV/GP path for non-REFUSED scenarios only."""
     baselines = _baseline()
-    envelope = _support_envelope()
-    decisions = [envelope.check(scenario) for scenario in scenarios]
     s_count = len(scenarios)
+    if s_count == 0:
+        return []
 
     lever_rows = [[e.levers[sku] for sku in SKU_IDS] for e in expanded]
     price_bp = np.array([[lv.price_bp for lv in row] for row in lever_rows], dtype=float)
@@ -150,29 +253,26 @@ def _evaluate_chunk(
         mech[si, :] = [lv.mechanic for lv in row]
 
     diag_e = np.diagonal(draws.elasticity, axis1=1, axis2=2)  # (K+1, N_SKUS)
-    cross_effect = cross_price_log_effect(ln_price, draws.elasticity)  # (K+1, S, N_SKUS), own+cross
+    cross_effect = cross_price_log_effect(ln_price, draws.elasticity)  # (K+1, S, N_SKUS)
     if np.any(depth):
         promo_effect = average_monthly_promo_log_effect(depth, mech, weeks, draws)
     else:
         promo_effect = np.zeros_like(cross_effect)
 
-    base_vec = np.array([baselines.baseline_volume[s] for s in SKU_IDS])  # (N_SKUS,)
+    base_vec = np.array([baselines.baseline_volume[s] for s in SKU_IDS])
     ln_base = np.log(base_vec)
 
-    # Bridge stages, in log space: baseline -> +own price -> +cross-pack -> +promo (final). The bridge
-    # is reported for the central draw only, so the two intermediate stages are computed for that
-    # draw alone; only the final volume is needed for every draw.
-    own_effect_central = diag_e[0][None, :] * ln_price  # (S, N_SKUS)
+    own_effect_central = diag_e[0][None, :] * ln_price
     vol1_central = np.exp(ln_base[None, :] + own_effect_central)
     vol2_central = np.exp(ln_base[None, :] + cross_effect[0])
-    vol3 = np.exp(ln_base[None, None, :] + cross_effect + promo_effect)  # final volume
+    vol3 = np.exp(ln_base[None, None, :] + cross_effect + promo_effect)
 
-    ref_price_vec = np.array([baselines.reference_price[s] for s in SKU_IDS])  # (N_SKUS,)
+    ref_price_vec = np.array([baselines.reference_price[s] for s in SKU_IDS])
     price_base = np.broadcast_to(ref_price_vec, (s_count, N_SKUS))
     price_final = ref_price_vec[None, :] * (price_bp / 1000.0)
 
     fixed_trade_pct = registry.get("A-016").value
-    promo_share = (weeks / 4.0) * (depth / 100.0)  # (S, N_SKUS)
+    promo_share = (weeks / 4.0) * (depth / 100.0)
 
     cogs_unit_base_by_format = {fmt: cogs_per_unit(fmt, CostShock()) for fmt in FORMATS}
     cogs_base_units = np.array([cogs_unit_base_by_format[SKU_FORMAT[sku]] for sku in SKU_IDS])
@@ -184,8 +284,7 @@ def _evaluate_chunk(
             for ji, sku in enumerate(SKU_IDS):
                 cogs_unit[si, ji] = cogs_per_unit(SKU_FORMAT[sku], scenario.cost_shock)
 
-    # Central draw (index 0): the reported value, the bridge and the hashed outputs.
-    gsv_c = price_final * vol3[0]  # (S, N_SKUS)
+    gsv_c = price_final * vol3[0]
     trade_c = fixed_trade_pct * gsv_c + promo_share * gsv_c
     cogs_c = cogs_unit * vol3[0]
     nsv_c = gsv_c - trade_c
@@ -214,103 +313,50 @@ def _evaluate_chunk(
         mask = target == component
         bridge_cents[component][mask] += residual[mask]
 
-    portfolio_c = gp_c.sum(axis=1)  # (S,)
-    # Focal-brand totals for the central draw, same formulas as the per-SKU values summed.
-    focal_c = np.stack([(arr * _FOCAL_MASK).sum(axis=1) for arr in (vol3[0], gsv_c, nsv_c, gp_c)], axis=-1)  # (S, 4)
+    portfolio_c = gp_c.sum(axis=1)
+    focal_c = np.stack([(arr * _FOCAL_MASK).sum(axis=1) for arr in (vol3[0], gsv_c, nsv_c, gp_c)], axis=-1)
 
-    # Per-SKU GSV, NSV and GP are volume times a per-unit amount that is the same in every draw
-    # (price, trade rate, promo share and unit COGS are scenario inputs, only volume varies with
-    # the assumption draws). Percentiles use linear interpolation, so the percentile of c * x is
-    # c * percentile(x) for c >= 0 and c * percentile(x) with the 10th and 90th swapped for c < 0.
-    # One volume quantile therefore gives all four per-SKU bands. Totals across SKUs (the all-brand
-    # portfolio GP and the focal brand's volume, revenue, net sales and GP) are sums per draw, so
-    # their quantiles come from the per-draw sums, never from adding per-SKU quantiles together.
     nsv_unit = price_final - (fixed_trade_pct * price_final + promo_share * price_final)
     gp_unit = nsv_unit - cogs_unit
     if draws.k:
-        volume_q = np.percentile(vol3[1:], (10, 50, 90), axis=0)  # (3, S, N_SKUS)
+        volume_q = np.percentile(vol3[1:], (10, 50, 90), axis=0)
         total_units = np.stack(
             [gp_unit, np.broadcast_to(_FOCAL_MASK, gp_unit.shape), price_final * _FOCAL_MASK,
-             nsv_unit * _FOCAL_MASK, gp_unit * _FOCAL_MASK], axis=-1)  # (S, N_SKUS, 5)
-        total_draws = np.einsum("ksn,snm->ksm", vol3[1:], total_units)  # (K, S, 5)
-        total_q = np.percentile(total_draws, (10, 50, 90), axis=0)  # (3, S, 5)
+             nsv_unit * _FOCAL_MASK, gp_unit * _FOCAL_MASK], axis=-1)
+        total_draws = np.einsum("ksn,snm->ksm", vol3[1:], total_units)
+        total_q = np.percentile(total_draws, (10, 50, 90), axis=0)
         portfolio_q = total_q[:, :, 0]
-        focal_q = total_q[:, :, 1:]  # volume, gsv, nsv, gp
-    else:
-        # No draws: every band collapses onto the central value exactly.
-        volume_q = np.repeat(vol3[:1], 3, axis=0)
-        portfolio_q = np.repeat(portfolio_c[None, :], 3, axis=0)
-        focal_q = np.repeat(focal_c[None, :, :], 3, axis=0)
-    if draws.k:
+        focal_q = total_q[:, :, 1:]
         gsv_q = _scale_quantiles(volume_q, price_final)
         nsv_q = _scale_quantiles(volume_q, nsv_unit)
         gp_q = _scale_quantiles(volume_q, gp_unit)
     else:
+        volume_q = np.repeat(vol3[:1], 3, axis=0)
+        portfolio_q = np.repeat(portfolio_c[None, :], 3, axis=0)
+        focal_q = np.repeat(focal_c[None, :, :], 3, axis=0)
         gsv_q, nsv_q, gp_q = (np.repeat(c[None, :, :], 3, axis=0) for c in (gsv_c, nsv_c, gp_c))
 
-    mh = _model_hash(draws)
-    dh = _data_hash()
-    rvh = spec_hash()
-
-    # Bulk conversion to Python floats/ints: indexing numpy scalars cell by cell was the largest
-    # per-scenario cost. tolist() yields the same values as float()/int() on each element.
     central = {"volume": vol3[0].tolist(), "gsv": gsv_c.tolist(), "nsv": nsv_c.tolist(), "gp": gp_c.tolist()}
     quant = {"volume": volume_q.tolist(), "gsv": gsv_q.tolist(), "nsv": nsv_q.tolist(), "gp": gp_q.tolist()}
     bridge_list = bridge_cents.tolist()
     total_bridge_list = total_bridge_cents.tolist()
     portfolio_central = portfolio_c.tolist()
     portfolio_quant = portfolio_q.tolist()
-    focal_central = focal_c.tolist()  # (S, 4)
-    focal_quant = focal_q.tolist()  # (3, S, 4)
+    focal_central = focal_c.tolist()
+    focal_quant = focal_q.tolist()
 
-    scenario_ids: list[str] = []
-    ids_by_key: dict[tuple, str] = {}
-    for item in expanded:
-        key = (
-            item.schema_version,
-            tuple((sku, lv.price_bp, lv.depth_pct, lv.mechanic, lv.weeks_per_month)
-                  for sku, lv in item.levers.items()),
-            tuple(sorted(item.cost_shock.items())),
-        )
-        sid = ids_by_key.get(key)
-        if sid is None:
-            sid = scenario_id(item)
-            ids_by_key[key] = sid
-        scenario_ids.append(sid)
-
-    results = []
     hurdle = registry.get("A-017").value
     pass_through = registry.get("A-017b").value
     price_index = price_bp / 1000.0
     shelf_rel = 1.0 + (price_index - 1.0) * pass_through
     retailer_risk_mask = 1.0 - price_index * (1.0 - hurdle) / shelf_rel < hurdle
-    for si in range(len(expanded)):
+
+    results: list[ScenarioResult] = []
+    for si in range(s_count):
         sid = scenario_ids[si]
         decision = decisions[si]
-        if decision.status == "REFUSED":
-            reasons = [reason.message for reason in decision.reasons]
-            rh = result_hash(
-                scenario_id_=sid,
-                engine_version=ENGINE_VERSION,
-                model_hash=mh,
-                data_hash=dh,
-                registry_values_hash=rvh,
-                k=draws.k,
-                seed=draws.seed,
-                status="REFUSED",
-                reasons=reasons,
-                outputs_quantized={},
-            )
-            suggested = nearest_supported(scenarios[si], envelope).scenario
-            results.append(ScenarioResult(
-                scenario_id=sid, status="REFUSED", focal={}, volume={}, gsv={}, nsv={}, gp={},
-                portfolio_gp=None, bridge={}, retailer_risk_skus=[], result_hash=rh,
-                refusal_reasons=[vars(reason) for reason in decision.reasons],
-                nearest_supported_scenario=suggested,
-            ))
-            continue
         volume_bands, gsv_bands, nsv_bands, gp_bands, bridge = {}, {}, {}, {}, {}
-        flagged = []
+        flagged: list[str] = []
         outputs_quantized: dict[str, dict] = {}
 
         for ji, sku in enumerate(SKU_IDS):
@@ -320,7 +366,6 @@ def _evaluate_chunk(
             gp_bands[sku] = _band_from(central["gp"], quant["gp"], si, ji)
 
             if decision.status == "EDGE":
-                # Explicitly widen all reported intervals on sparse support.
                 for bands in (volume_bands, gsv_bands, nsv_bands, gp_bands):
                     bands[sku] = _widen(bands[sku])
 
@@ -384,8 +429,57 @@ def _evaluate_chunk(
                 nearest_supported_scenario=None,
             )
         )
-
     return results
+
+
+def _evaluate_chunk(
+    scenarios: list[Scenario],
+    draws: ParamDraws,
+    expanded: list[ExpandedScenario],
+    *,
+    mh: str | None = None,
+    dh: str | None = None,
+    rvh: str | None = None,
+    ids_by_key: dict[tuple, str] | None = None,
+) -> list[ScenarioResult]:
+    envelope = _support_envelope()
+    decisions = [envelope.check(scenario) for scenario in scenarios]
+    mh = mh if mh is not None else _model_hash(draws)
+    dh = dh if dh is not None else _data_hash()
+    rvh = rvh if rvh is not None else spec_hash()
+
+    ids_by_key = ids_by_key if ids_by_key is not None else {}
+    scenario_ids = [_scenario_id_for(item, ids_by_key) for item in expanded]
+
+    refused_idx = [i for i, d in enumerate(decisions) if d.status == "REFUSED"]
+    if not refused_idx:
+        # Hot path for fully-supported batches (benchmarks, sweeps): no partition copies.
+        return _evaluate_supported_tensors(
+            scenarios, draws, expanded, decisions, scenario_ids, mh, dh, rvh
+        )
+
+    results: list[ScenarioResult | None] = [None] * len(scenarios)
+    for i in refused_idx:
+        results[i] = _refused_result(
+            scenario_ids[i], scenarios[i], decisions[i], envelope, draws, mh, dh, rvh
+        )
+    supported_idx = [i for i in range(len(scenarios)) if i not in set(refused_idx)]
+    if supported_idx:
+        supported_results = _evaluate_supported_tensors(
+            [scenarios[i] for i in supported_idx],
+            draws,
+            [expanded[i] for i in supported_idx],
+            [decisions[i] for i in supported_idx],
+            [scenario_ids[i] for i in supported_idx],
+            mh, dh, rvh,
+        )
+        for pos, result in zip(supported_idx, supported_results, strict=True):
+            results[pos] = result
+    return [item for item in results if item is not None]
+
+
+def _cache_key(sid: str, draws: ParamDraws, mh: str, dh: str, rvh: str) -> tuple:
+    return (sid, ENGINE_VERSION, mh, dh, rvh, draws.k, draws.seed)
 
 
 def evaluate_batch(scenarios: list[Scenario], draws: ParamDraws) -> list[ScenarioResult]:
@@ -393,12 +487,17 @@ def evaluate_batch(scenarios: list[Scenario], draws: ParamDraws) -> list[Scenari
     if not scenarios:
         return []
     chunk_size = int(registry.get("A-024").value)
+    cache_limit = int(registry.get("A-038").value)
+    mh = _model_hash(draws)
+    dh = _data_hash()
+    rvh = spec_hash()
+
     expanded_by_request: dict[tuple, ExpandedScenario] = {}
     unique_index_by_key: dict[tuple, int] = {}
     unique_scenarios: list[Scenario] = []
     unique_expanded: list[ExpandedScenario] = []
     request_to_unique: list[int] = []
-    expanded = []
+    ids_by_key: dict[tuple, str] = {}
     for scenario in scenarios:
         key = (
             scenario.schema_version,
@@ -416,23 +515,45 @@ def evaluate_batch(scenarios: list[Scenario], draws: ParamDraws) -> list[Scenari
             unique_scenarios.append(scenario)
             unique_expanded.append(item)
         request_to_unique.append(unique_index_by_key[key])
-        expanded.append(item)
-    unique_results: list[ScenarioResult] = []
-    for start in range(0, len(unique_scenarios), chunk_size):
+
+    unique_results: list[ScenarioResult | None] = [None] * len(unique_scenarios)
+    miss_scenarios: list[Scenario] = []
+    miss_expanded: list[ExpandedScenario] = []
+    miss_positions: list[int] = []
+    for i, (scenario, item) in enumerate(zip(unique_scenarios, unique_expanded, strict=True)):
+        sid = _scenario_id_for(item, ids_by_key)
+        key = _cache_key(sid, draws, mh, dh, rvh)
+        cached = _RESULT_CACHE.get(key) if cache_limit > 0 else None
+        if cached is not None:
+            unique_results[i] = cached
+        else:
+            miss_scenarios.append(scenario)
+            miss_expanded.append(item)
+            miss_positions.append(i)
+
+    computed: list[ScenarioResult] = []
+    for start in range(0, len(miss_scenarios), chunk_size):
         end = start + chunk_size
-        unique_results.extend(_evaluate_chunk(
-            unique_scenarios[start:end], draws, unique_expanded[start:end]
+        computed.extend(_evaluate_chunk(
+            miss_scenarios[start:end], draws, miss_expanded[start:end],
+            mh=mh, dh=dh, rvh=rvh, ids_by_key=ids_by_key,
         ))
+    for pos, result in zip(miss_positions, computed, strict=True):
+        unique_results[pos] = result
+        if cache_limit > 0:
+            key = _cache_key(result.scenario_id, draws, mh, dh, rvh)
+            if len(_RESULT_CACHE) >= cache_limit:
+                _RESULT_CACHE.clear()
+            _RESULT_CACHE[key] = result
+
     output = []
     for index, scenario in zip(request_to_unique, scenarios, strict=True):
         item = unique_results[index]
+        if item is None:
+            raise RuntimeError("internal: unique scenario result missing after evaluation")
         if item.status != "REFUSED":
-            # Results are read-only values to engine callers. Reusing the
-            # value avoids copying five 12-SKU maps for duplicate scenarios.
             output.append(item)
             continue
-        # A refused result carries the caller's own name in its suggestion, so each request gets its
-        # own copy of just the mutable parts (the maps are empty for a refusal).
         nearest = item.nearest_supported_scenario
         if nearest is not None:
             nearest = nearest.model_copy(update={"name": f"Nearest supported to {scenario.name}"[:80]})
@@ -441,7 +562,7 @@ def evaluate_batch(scenarios: list[Scenario], draws: ParamDraws) -> list[Scenari
             volume=item.volume.copy(), gsv=item.gsv.copy(),
             nsv=item.nsv.copy(), gp=item.gp.copy(), bridge=item.bridge.copy(),
             retailer_risk_skus=item.retailer_risk_skus.copy(),
-            refusal_reasons=[dict(reason) for reason in item.refusal_reasons],  # values are str/float/tuple
+            refusal_reasons=[dict(reason) for reason in item.refusal_reasons],
             nearest_supported_scenario=nearest,
         ))
     return output

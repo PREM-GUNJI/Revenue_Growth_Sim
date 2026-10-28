@@ -1,0 +1,41 @@
+# United States — synthetic soft-drink market in USD. Numbers are illustrative,
+# not live FX of the India pack and not real retailer prices.
+id: us
+label: United States
+currency:
+  code: USD
+  symbol: "$"
+  locale: en-US
+money:
+  # Costs (USD per litre / per unit)
+  A-013: 0.12          # raw material per litre
+  A-014a: 0.18         # 330ml can packaging
+  A-014b: 0.15         # 500ml PET packaging
+  A-014c: 0.28         # 1.5L bottle packaging
+  A-014d: 0.95         # 6-pack packaging
+  A-015: 0.08          # variable manufacturing per litre
+  # Reference shelf prices (Aurora, price_index=1)
+  A-028: 1.49
+  A-029: 1.69
+  A-030: 2.49
+  A-031: 5.99
+  A-035: 0.05          # Van Westendorp grid step
+demand:
+  # Slightly less price-elastic than the India pack (documented modelling choice).
+  A-001: -2.1
+  A-002: -1.5
+  A-003: -1.1
+  A-004: -1.0
+  A-007: 0.55          # promo saturation k
+  A-008: 0.40          # promo lift scale
+generator:
+  base_volume_by_format:
+    can_330ml: 220.0
+    pet_500ml: 160.0
+    bottle_1500ml: 55.0
+    multipack_6x330ml: 50.0
+  list_price_by_format:
+    can_330ml: 1.49
+    pet_500ml: 1.69
+    bottle_1500ml: 2.49
+    multipack_6x330ml: 5.99

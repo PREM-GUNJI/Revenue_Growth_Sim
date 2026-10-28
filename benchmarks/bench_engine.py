@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 
-from backend.engine.batch import evaluate_batch
+from backend.engine.batch import clear_result_cache, evaluate_batch
 from backend.engine.scenario import Lever, Scenario
 from backend.model.spec import build_param_draws
 
@@ -37,9 +37,11 @@ def measure(sizes: list[int], repeats: int) -> list[dict[str, float | int | bool
             })
             for i in range(size)
         ]
+        clear_result_cache()
         evaluate_batch(scenarios[:1], draws)  # warm imports and cached baseline
         samples = []
         for _ in range(repeats):
+            clear_result_cache()  # A-038 must not flatten timed repeats
             start = time.perf_counter()
             evaluate_batch(scenarios, draws)
             samples.append((time.perf_counter() - start) * 1000.0)

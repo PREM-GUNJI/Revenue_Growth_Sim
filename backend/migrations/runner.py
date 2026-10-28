@@ -13,6 +13,8 @@ from backend.migrations import (
     v003_workspaces,
     v004_ai_usage_cached_tokens,
     v005_user_roles,
+    v006_workspace_market,
+    v007_pgvector_run_embeddings,
 )
 
 Migration = tuple[str, Callable[[Connection], None]]
@@ -29,6 +31,8 @@ MIGRATIONS: tuple[Migration, ...] = (
     ("003_workspaces", v003_workspaces.upgrade),
     ("004_ai_usage_cached_tokens", v004_ai_usage_cached_tokens.upgrade),
     ("005_user_roles", v005_user_roles.upgrade),
+    ("006_workspace_market", v006_workspace_market.upgrade),
+    ("007_pgvector_run_embeddings", v007_pgvector_run_embeddings.upgrade),
 )
 
 

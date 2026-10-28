@@ -37,7 +37,7 @@ npm run dev  # http://localhost:5173
 ```
 
 Run the API with `uv run uvicorn backend.api.main:app --reload` (default: `http://localhost:8000`).
-The backend supports assumptions and envelope inspection, scenario evaluation and sweeps, nearest-supported suggestions, and deterministic scenario export/import. Run `uv run python -m tasks bench` to measure the budgets in `docs/plan/PLAN.md` section 8.
+The backend supports assumptions and envelope inspection, scenario evaluation and sweeps, nearest-supported suggestions, historical similar-run search via pgvector (`POST /scenarios/similar`; not a substitute for nearest-supported), and deterministic scenario export/import. Run `uv run python -m tasks bench` to measure the budgets in `docs/plan/PLAN.md` section 8.
 
 Deployment (containerisation, rollback) is scheduled for a later phase; see `docs/HONESTY.md` for exactly what is real vs. scaffolded today. Demand outputs use documented assumptions and synthetic data; they are not fitted forecasts.
 
@@ -77,27 +77,33 @@ The screens use plain language by default. **Show technical details** (under you
 
 A case has four steps, each a real URL:
 
-1. **Situation**: where the focal brand (Aurora) stands today, per typical week in INR. A baseline P&L by pack (units, revenue, trade terms, net sales, unit costs, gross profit, margin), observed price gaps to Boreal and Comet and promotion history, and engine probes of a 3% price rise, a 10% promotion and an 8% input-cost shock. Every section is labelled Observed, Modeled or Assumed.
+1. **Situation**: where the focal brand (Aurora) stands today, per typical week in the case's market currency. A baseline P&L by pack (units, revenue, trade terms, net sales, unit costs, gross profit, margin), observed price gaps to Boreal and Comet and promotion history, and engine probes of a 3% price rise, a 10% promotion and an 8% input-cost shock. Every section is labelled Observed, Modeled or Assumed.
 2. **Options**: build price, pack and promotion scenarios. Each slider shows where the engine has data; past that it refuses and shows no numbers.
-3. **Compare**: all options side by side in rupees with the engine's P10 to P90 range, why the profit moved (price, volume, cross-pack, promotion, trade, costs), the assumptions each result rests on, and a scenario ID that reproduces it.
+3. **Compare**: all options side by side in the case currency with the engine's P10 to P90 range, why the profit moved (price, volume, cross-pack, promotion, trade, costs), the assumptions each result rests on, and a scenario ID that reproduces it.
 4. **Recommend**: the best option and the AI decision assistant. The assistant is also available from every step. It plans and explains; the engine calculates every number and an auditor checks that each claim traces to a tool result.
 
 **Executive brief** (`/w/:id/executive`) is the boardroom view of the same case: recommendation, up to three options, refusals without numbers, and caveats — no lever editors, assumptions drawer or agent chrome. Print the screen or use **Export deck** / **Brief**; the PowerPoint and HTML brief follow the same sparse narrative.
 
-The figures are the focal brand's. Competitors are modelled so cross-price effects show, but their profit is not yours. All money is synthetic INR (ADR-016). Every registered assumption carries a rationale, a valid range and a source or an honest "no external source" statement, shown in the assumptions drawer.
+### Markets and currencies
 
-A case can be exported as a PowerPoint from its header. The sidebar also has the **Agent runs** history and the **Audit and AI usage** page. AI cost is tokens times the rates in `backend/ai_pricing.py`; update them (and `RATE_VERSION`) when the provider changes prices. See ADR-015 and ADR-016.
+A new case picks a **market pack** (India INR, United States USD, or Eurozone EUR). The market locks at create and cannot be changed later. Each pack overlays shelf prices, costs and (where documented) demand parameters, and has its own synthetic history under `data/markets/{id}/`. Money on screen and in exports uses that market's currency — this is synthetic market data, not live FX of one India dataset. Add another market with a YAML pack under `backend/markets/packs/` plus `uv run python -m backend.markets.generate_all`. See ADR-018 (amends ADR-016: INR remains the India market, not the only currency).
+
+The figures are the focal brand's. Competitors are modelled so cross-price effects show, but their profit is not yours. Every registered assumption carries a rationale, a valid range and a source or an honest "no external source" statement, shown in the assumptions drawer.
+
+A case can be exported as a PowerPoint from its header. The sidebar also has the **Agent runs** history and the **Audit and AI usage** page. AI cost is tokens times the rates in `backend/ai_pricing.py`; update them (and `RATE_VERSION`) when the provider changes prices. See ADR-015, ADR-016 and ADR-018.
 
 Known gap: the engine meets the AC-016 latency budgets at 1 and 100 scenarios but not at 1,000 and 10,000 distinct scenarios (see `docs/performance/OPTIMIZATION.md`).
 
 ## PostgreSQL and environment configuration
 
-1. Copy `.env.example` to `.env` and replace the local database password (and add provider API keys only when needed).
-2. Start PostgreSQL with `docker compose up -d db`.
-3. Install/update backend dependencies with `uv sync --extra dev`.
-4. Start the API with `uv run uvicorn backend.api.main:app --reload`.
+Persistence and similar-run search use a normal PostgreSQL server over `DATABASE_URL` — not a Docker-only stack. Docker Compose (`compose.yaml`) is optional convenience only.
 
-The API loads `.env` for local development. `GET /database/health` reports connection status. `POST /scenario-runs` evaluates and saves one run; `GET /scenario-runs` lists the latest saved runs. The database tables are created on first use. OpenAI defaults to model `gpt-5.5`; provider integration remains a later phase.
+1. Copy `.env.example` to `.env` and set `DATABASE_URL` to your Postgres instance (and add provider API keys only when needed).
+2. On that Postgres, install [pgvector](https://github.com/pgvector/pgvector) for your OS/package manager, then as a superuser: `CREATE EXTENSION IF NOT EXISTS vector;`
+3. Install/update backend dependencies with `uv sync --extra dev`.
+4. Start the API with `uv run uvicorn backend.api.main:app --reload`. Migrations (including `run_embeddings`) apply on first DB use.
+
+The API loads `.env` for local development. `GET /database/health` reports connection status. `POST /scenario-runs` evaluates and saves one run (and upserts a deterministic embedding for similarity search); `GET /scenario-runs` lists the latest saved runs; `POST /scenarios/similar` ranks past runs by lever/text distance. OpenAI defaults to model `gpt-5.5`; provider integration remains a later phase.
 
 ## Synthetic consumer evidence (supporting layer)
 
@@ -121,7 +127,7 @@ Limitations, stated plainly:
 - Conjoint uses supplied utilities: it simulates choices and does not estimate or fit utilities.
 - No ML demand model is used. Nothing is trained or fitted.
 - The existing support-envelope limits still apply, so some research candidates are REFUSED with no numbers.
-- Research prices are in INR and indexed to a registry reference price per pack; the engine's currency is abstract.
+- Research prices use the active market's currency and are indexed to a registry reference price per pack.
 
 ## Worked examples
 

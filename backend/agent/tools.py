@@ -212,6 +212,30 @@ class AgentTools:
                 "scenario_id": scenario_id(expand_scenario(suggestion.scenario)),
                 "distance": suggestion.distance, "status": status}
 
+    def _tool_find_similar_runs(
+        self,
+        scenario: dict | None = None,
+        query_text: str | None = None,
+        limit: int = 10,
+        workspace_id: str | None = None,
+    ) -> list[dict]:
+        """Observed past runs only. Does not evaluate, refuse, or invent metrics."""
+        if scenario is None and not (query_text and str(query_text).strip()):
+            raise ToolError("find_similar_runs requires scenario and/or query_text")
+        try:
+            from backend.similarity import find_similar_runs
+
+            return find_similar_runs(
+                scenario=scenario,
+                query_text=query_text,
+                limit=limit,
+                workspace_id=workspace_id,
+            )
+        except RuntimeError as exc:
+            raise ToolError(str(exc)) from exc
+        except Exception as exc:
+            raise ToolError(f"similarity search unavailable: {exc}") from exc
+
     def _tool_explain_scenario(self, scenario: dict, k: int = 0, seed: int = 42) -> dict:
         result = evaluate_batch([Scenario.model_validate(scenario)], build_param_draws(k=k, seed=seed))[0]
         scenario_model = Scenario.model_validate(scenario)

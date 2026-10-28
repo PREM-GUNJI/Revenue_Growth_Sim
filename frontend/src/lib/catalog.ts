@@ -1,4 +1,6 @@
 import type { ApiBand, ApiScenario, ApiScenarioResult } from "@/lib/api"
+import { INR, money as moneyFmt, moneyWhole, signedMoney } from "@/lib/currency"
+import type { Currency } from "@/lib/currency"
 
 /** Static catalog facts (observed pack formats). Nothing here is a research or engine parameter. */
 export const BRAND = "Aurora"
@@ -37,11 +39,13 @@ export const signed = (v: number, digits = 1) =>
   `${v >= 0.5 * 10 ** -digits ? "+" : v <= -0.5 * 10 ** -digits ? "−" : ""}${Math.abs(v).toFixed(digits)}%`
 export const tone = (v: number) => (v < -0.05 ? "text-loss" : v > 0.05 ? "text-gain" : "text-muted-foreground")
 export const compact = (v: number) => new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(v)
-export const inr = (v: number) => "₹" + v.toFixed(2)
+
+/** @deprecated Prefer `money(v, currency)` — kept for call sites that still assume INR. */
+export const inr = (v: number) => moneyFmt(v, INR)
 const indian = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 })
-/** Whole rupees with Indian digit grouping, e.g. ₹2,35,586. */
-export const rupees = (v: number) => (v < 0 ? "−" : "") + "₹" + indian.format(Math.abs(Math.round(v)))
-/** A change in rupees with an explicit sign, e.g. +₹10,440 or −₹1,548. */
-export const signedRupees = (v: number) => (Math.round(v) === 0 ? "₹0" : (v > 0 ? "+" : "−") + "₹" + indian.format(Math.abs(Math.round(v))))
+/** Whole amounts; pass `currency` for non-INR markets. */
+export const rupees = (v: number, currency: Currency = INR) => moneyWhole(v, currency)
+/** Signed whole amounts; pass `currency` for non-INR markets. */
+export const signedRupees = (v: number, currency: Currency = INR) => signedMoney(v, currency)
 export const units = (v: number) => indian.format(Math.round(v))
 export const SYNTHETIC = "SYNTHETIC CONSUMER EVIDENCE"

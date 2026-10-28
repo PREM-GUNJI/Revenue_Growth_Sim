@@ -351,6 +351,15 @@ SUPPORT_DECISION_CACHE_SIZE = Assumption(
     rationale="Bounds memory used to reuse deterministic support decisions for repeated scenario levers.",
     valid_range=(128, 131072),
 )
+RESULT_CACHE_SIZE = Assumption(
+    id="A-038",
+    label="Scenario result cache size",
+    value=4096,
+    unit="entries",
+    source="modelling-choice",
+    rationale="Bounds memory used to reuse identical ScenarioResult objects for repeated content-addressed evaluations within a process.",
+    valid_range=(0, 65536),
+)
 SYNTHETIC_CONSUMER_SAMPLE = Assumption(
     id="A-026", label="Default synthetic consumer sample size", value=250,
     unit="respondents", source="modelling-choice",
@@ -463,7 +472,7 @@ _REFERENCES: dict[str, str] = {
     **{aid: _REF_COST for aid in ("A-013", "A-014a", "A-014b", "A-014c", "A-014d", "A-015", "A-016", "A-017", "A-017b")},
     **{aid: _REF_QUALITATIVE for aid in ("A-018", "A-019", "A-020")},
     "A-021": _REF_SUPPORT,
-    **{aid: _REF_ENGINE for aid in ("A-022", "A-023", "A-024", "A-025")},
+    **{aid: _REF_ENGINE for aid in ("A-022", "A-023", "A-024", "A-025", "A-038")},
     **{aid: _REF_RESEARCH for aid in (
         "A-026", "A-027", "A-028", "A-029", "A-030", "A-031", "A-032", "A-033", "A-034", "A-035", "A-036", "A-037")},
 }
@@ -497,6 +506,7 @@ ASSUMPTIONS: dict[str, Assumption] = _with_references({
     JOINT_SUPPORT_COMFORT_ROWS.id: JOINT_SUPPORT_COMFORT_ROWS,
     SCENARIO_CHUNK_SIZE.id: SCENARIO_CHUNK_SIZE,
     SUPPORT_DECISION_CACHE_SIZE.id: SUPPORT_DECISION_CACHE_SIZE,
+    RESULT_CACHE_SIZE.id: RESULT_CACHE_SIZE,
     SYNTHETIC_CONSUMER_SAMPLE.id: SYNTHETIC_CONSUMER_SAMPLE,
     CONJOINT_UTILITY_SCALE.id: CONJOINT_UTILITY_SCALE,
     **{a.id: a for a in REFERENCE_PRICE_BY_FORMAT.values()},
@@ -519,18 +529,21 @@ def build_elasticity_matrix() -> np.ndarray:
     """(N_SKUS, N_SKUS) matrix: diagonal = own elasticity, off-diagonal = cross.
 
     Used by both the generator (Phase 1) and the engine/model (Phase 2/4) so
-    the two can never drift apart.
+    the two can never drift apart. Values come from the registry so an active
+    market pack's demand overlay is applied.
     """
+    from backend.assumptions import registry
+
     e = np.zeros((N_SKUS, N_SKUS), dtype=np.float64)
     for i, si in enumerate(SKUS):
-        e[i, i] = OWN_ELASTICITY_BY_FORMAT[si["format"]].value
+        e[i, i] = registry.get(OWN_ELASTICITY_BY_FORMAT[si["format"]].id).value
         for j, sj in enumerate(SKUS):
             if i == j:
                 continue
             e[i, j] = (
-                CROSS_ELASTICITY_WITHIN_BRAND.value
+                registry.get(CROSS_ELASTICITY_WITHIN_BRAND.id).value
                 if si["brand"] == sj["brand"]
-                else CROSS_ELASTICITY_ACROSS_BRAND.value
+                else registry.get(CROSS_ELASTICITY_ACROSS_BRAND.id).value
             )
     return e
 
@@ -540,14 +553,17 @@ def promo_lift_log(depth_pct: np.ndarray, mechanic: np.ndarray) -> np.ndarray:
 
     `depth_pct` in [0,100], `mechanic` an array of strings from PROMO_MECHANICS.
     Vectorised; `mechanic == "none"` forces zero lift regardless of depth.
+    Values come from the registry so an active market pack's demand overlay is applied.
     """
+    from backend.assumptions import registry
+
     depth = np.asarray(depth_pct, dtype=np.float64) / 100.0
-    k = PROMO_SATURATION_K.value
-    b = PROMO_LIFT_SCALE.value
+    k = registry.get(PROMO_SATURATION_K.id).value
+    b = registry.get(PROMO_LIFT_SCALE.id).value
     sat = 1.0 - np.exp(-k * depth)
     mult = np.ones_like(depth)
     for name, a in PROMO_MECHANIC_MULTIPLIER.items():
-        mult = np.where(np.asarray(mechanic) == name, a.value, mult)
+        mult = np.where(np.asarray(mechanic) == name, registry.get(a.id).value, mult)
     mult = np.where(np.asarray(mechanic) == "none", 0.0, mult)
     return b * sat * mult
 

@@ -10,6 +10,14 @@ from backend.agent.schemas import AgentAnswer, ToolEvent
 from backend.assumptions.assumptions import FORMATS, PACK_SIZE_L
 
 _NUMBER = re.compile(r"(?<![\w-])[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?%?")
+# Indian lakh grouping (₹2,27,764): last group is 3 digits, earlier groups are 2.
+# Without collapsing, the scanner falsely flags "27,764" as a separate ungrounded number.
+_INDIAN_GROUPED = re.compile(r"(?<![\d.])(\d{1,2}(?:,\d{2})+,\d{3})(?!\d)")
+
+
+def _normalize_number_grouping(text: str) -> str:
+    """Collapse Indian-style thousands so one money figure is one token."""
+    return _INDIAN_GROUPED.sub(lambda match: match.group(1).replace(",", ""), text)
 
 
 def _pack_label_pattern() -> re.Pattern[str]:
@@ -75,12 +83,20 @@ def _evidence_numbers(value: Any, key: str = "") -> list[Decimal]:
 
 def check_numeric_grounding(answer: AgentAnswer, events: list[ToolEvent]) -> tuple[list[str], int]:
     available = [number for event in events for number in _evidence_numbers(event.result)]
-    texts = [answer.summary, *answer.recommendations, *answer.refusals, *answer.caveats]
+    texts = [
+        answer.summary,
+        answer.decision,
+        *answer.why,
+        *answer.recommendations,
+        *answer.refusals,
+        *answer.caveats,
+    ]
     texts.extend(claim.text for claim in answer.claims)
     issues: list[str] = []
     checked = 0
     for text in texts:
-        for token in _NUMBER.findall(_PACK_LABEL.sub(" ", text)):
+        scanned = _normalize_number_grouping(_PACK_LABEL.sub(" ", text))
+        for token in _NUMBER.findall(scanned):
             number = _rounded(token)
             if number is None:
                 continue

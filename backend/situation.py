@@ -13,10 +13,10 @@ from typing import Any
 
 from fastapi import APIRouter
 
+from backend.assumptions import registry
 from backend.assumptions.assumptions import (
     ASSUMPTIONS,
     BRANDS,
-    CURRENCY_CODE,
     FOCAL_BRAND,
     N_WEEKS,
     OWN_ELASTICITY_BY_FORMAT,
@@ -27,6 +27,9 @@ from backend.assumptions.assumptions import (
 from backend.data.generator import GENERATOR_VERSION
 from backend.engine.batch import _baseline, _data_hash, _raw_data, evaluate_batch
 from backend.engine.scenario import CostShock, Lever, Scenario
+from backend.markets.context import get_active_market_id
+from backend.markets.deps import ActiveMarket
+from backend.markets.packs import load_market
 from backend.model.baselines import BACKTEST_WINDOW_WEEKS
 from backend.model.spec import build_param_draws
 
@@ -90,9 +93,17 @@ def _probe(base: Any, scenario_result: Any, sku_ids: list[str]) -> dict[str, Any
     }
 
 
-@lru_cache(maxsize=1)
-def build_situation() -> dict[str, Any]:
-    """Baseline P&L per SKU and brand, observed history, and engine probes. Deterministic and cached."""
+@lru_cache(maxsize=8)
+def _build_situation_for(market_id: str) -> dict[str, Any]:
+    """Baseline P&L per SKU and brand, observed history, and engine probes. Deterministic and cached per market."""
+    from backend.markets.context import use_market
+
+    market = load_market(market_id)
+    with use_market(market):
+        return _build_situation_body(market)
+
+
+def _build_situation_body(market) -> dict[str, Any]:
     baselines = _baseline()
     draws = build_param_draws(k=K, seed=SEED)
     focal_skus = [s for s in SKUS if s["brand"] == FOCAL_BRAND]
@@ -126,7 +137,7 @@ def build_situation() -> dict[str, Any]:
             "baseline_units": units, "baseline_gsv": gsv, "baseline_trade": gsv - nsv, "baseline_nsv": nsv,
             "baseline_cogs": nsv - gp, "baseline_gp": gp, "gp_margin_pct": gp / nsv * 100.0 if nsv else 0.0,
             "history": history[sku],
-            "own_elasticity": OWN_ELASTICITY_BY_FORMAT[s["format"]].value,
+            "own_elasticity": float(registry.get(OWN_ELASTICITY_BY_FORMAT[s["format"]].id).value),
             "own_elasticity_id": OWN_ELASTICITY_BY_FORMAT[s["format"]].id,
             "price_gap_vs_competitors_pct": (
                 {b: _pct(price, price_by_brand_format[(b, s["format"])]) for b in BRANDS if b != FOCAL_BRAND}
@@ -140,9 +151,10 @@ def build_situation() -> dict[str, Any]:
 
     focal_rows = [r for r in rows if r["is_focal"]]
     by_brand = {b: _totals([r for r in rows if r["brand"] == b]) for b in BRANDS}
-    market = _totals(rows)
+    market_totals = _totals(rows)
     return {
-        "currency": CURRENCY_CODE,
+        "market_id": market.id,
+        "currency": market.currency.as_dict(),
         "focal_brand": FOCAL_BRAND,
         "competitors": [b for b in BRANDS if b != FOCAL_BRAND],
         "period": {
@@ -153,8 +165,8 @@ def build_situation() -> dict[str, Any]:
         },
         "data_hash": _data_hash(),
         "skus": rows,
-        "totals": {"focal": _totals(focal_rows), "by_brand": by_brand, "market": market,
-                   "focal_value_share_pct": by_brand[FOCAL_BRAND]["gsv"] / market["gsv"] * 100.0},
+        "totals": {"focal": _totals(focal_rows), "by_brand": by_brand, "market": market_totals,
+                   "focal_value_share_pct": by_brand[FOCAL_BRAND]["gsv"] / market_totals["gsv"] * 100.0},
         "cost_shock_probe": {
             "shock_pct": COST_SHOCK_PCT,
             "applies_to": "aluminium, PET resin and sugar costs together",
@@ -170,6 +182,10 @@ def build_situation() -> dict[str, Any]:
         "model": {"k": K, "seed": SEED, "assumption_count": len(ASSUMPTIONS)},
         "labels": LABELS,
     }
+
+
+def build_situation() -> dict[str, Any]:
+    return _build_situation_for(get_active_market_id())
 
 
 def compact_for_agent() -> dict[str, Any]:
@@ -196,5 +212,5 @@ def compact_for_agent() -> dict[str, Any]:
 
 
 @router.get("/situation")
-async def situation() -> dict[str, Any]:
+async def situation(_market: ActiveMarket) -> dict[str, Any]:
     return build_situation()

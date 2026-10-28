@@ -11,6 +11,7 @@ assumptions are actually wired into a computation and which aren't yet.
 from __future__ import annotations
 
 from backend.assumptions.assumptions import ASSUMPTIONS, Assumption
+from backend.markets.context import overlay_assumption
 
 
 def _validate_rationales(assumptions: dict[str, Assumption]) -> None:
@@ -25,10 +26,13 @@ _reads: set[str] = set()
 
 
 def get(assumption_id: str) -> Assumption:
-    """Look up a registered assumption, recording the read for coverage checks."""
+    """Look up a registered assumption, recording the read for coverage checks.
+
+    When a market pack is active, money and demand ids return the overlaid values.
+    """
     assumption = ASSUMPTIONS[assumption_id]  # KeyError: unregistered id, fails loudly
     _reads.add(assumption_id)
-    return assumption
+    return overlay_assumption(assumption)
 
 
 def reads() -> set[str]:

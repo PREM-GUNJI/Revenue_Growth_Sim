@@ -107,8 +107,12 @@ class Claim(BaseModel):
 
 
 class AgentAnswer(BaseModel):
+    """Brief decision first; summary kept for traces and older clients."""
+
     summary: str
-    recommendations: list[str] = Field(default_factory=list)
+    decision: str = ""
+    why: list[str] = Field(default_factory=list)  # UI + prompt: at most two
+    recommendations: list[str] = Field(default_factory=list)  # UI + prompt: at most two
     refusals: list[str] = Field(default_factory=list)
     caveats: list[str] = Field(default_factory=list)
     assumption_ids: list[str] = Field(default_factory=list)

@@ -15,7 +15,7 @@ export function BoardPage() {
     <Tabs defaultValue="board">
       <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Step 3 of 4 · Compare</p>
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <TabsList className="h-auto w-fit justify-start gap-1 rounded-lg bg-secondary p-1"><TabsTrigger value="board" className={tab}>Comparison board</TabsTrigger><TabsTrigger value="analytics" className={tab}>Advanced charts</TabsTrigger></TabsList>
+        <TabsList className="h-auto w-fit justify-start gap-1 rounded-xl bg-secondary p-1 shadow-inner"><TabsTrigger value="board" className={tab}>Comparison board</TabsTrigger><TabsTrigger value="analytics" className={tab}>Advanced charts</TabsTrigger></TabsList>
         <label className="text-xs text-muted-foreground">Volume guardrail: lose no more than <span className="num text-sm font-semibold text-foreground">{guardrail}%</span> volume
           <input aria-label="Volume guardrail" type="range" min="0" max="20" step="1" value={guardrail} onChange={(e) => setGuardrail(Number(e.target.value))} className="mt-1 block w-48" /></label>
       </div>

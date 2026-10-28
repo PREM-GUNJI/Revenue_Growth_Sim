@@ -22,7 +22,7 @@ def test_planner_context_carries_the_baseline_tool_result() -> None:
     event = next(e for e in run.tool_events if e.name == "get_baseline")
     assert seen["baseline"] == event.result and seen["baseline_tool_call_id"] == event.call_id
     assert seen["baseline"]["focal_brand"] == "Aurora" and len(seen["baseline"]["packs"]) == 4
-    assert seen["baseline"]["currency"] == "INR"
+    assert seen["baseline"]["currency"]["code"] == "INR"
 
 
 def test_baseline_context_is_focal_only_and_engine_labelled() -> None:

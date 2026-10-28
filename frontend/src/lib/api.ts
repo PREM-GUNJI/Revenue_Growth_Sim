@@ -140,16 +140,24 @@ const post = <T,>(path: string, body: unknown, onResponse?: (response: Response)
 const forEngine = (scenarios: ApiScenario[]) => scenarios.map(({ source: _source, ...scenario }) => scenario)
 
 export function getAssumptions() { return request<ApiAssumption[]>("/assumptions") }
-export function getModelInfo() {
-  return request<{ engine_version: string; data_hash: string; model_spec_hash: string; deterministic: boolean }>("/model/info")
+function withMarket(path: string, marketId?: string) {
+  if (!marketId) return path
+  return path + (path.includes("?") ? "&" : "?") + "market=" + encodeURIComponent(marketId)
 }
-export function getEnvelope() { return request<EnvelopeInfo>("/envelope") }
+
+export function getModelInfo(marketId?: string) {
+  return request<{ engine_version: string; data_hash: string; model_spec_hash: string; deterministic: boolean; market_id?: string; currency?: { code: string; symbol: string; locale: string } }>(withMarket("/model/info", marketId))
+}
+export function getEnvelope(marketId?: string) { return request<EnvelopeInfo>(withMarket("/envelope", marketId)) }
 /** `onEngineMs` receives the server's own compute time for the batch (not the network round trip). */
-export function evaluateScenarios(scenarios: ApiScenario[], k = 200, seed = 42, onEngineMs?: (ms: number) => void) {
-  return post<ApiScenarioResult[]>("/scenarios/evaluate", { scenarios: forEngine(scenarios), k, seed }, onEngineMs
+export function evaluateScenarios(scenarios: ApiScenario[], k = 200, seed = 42, onEngineMs?: (ms: number) => void, marketId?: string) {
+  return post<ApiScenarioResult[]>(withMarket("/scenarios/evaluate", marketId), { scenarios: forEngine(scenarios), k, seed }, onEngineMs
     ? (response) => { const ms = Number(response.headers.get("X-Engine-Ms")); if (Number.isFinite(ms)) onEngineMs(ms) }
     : undefined)
 }
+
+export interface MarketInfo { id: string; label: string; currency: { code: string; symbol: string; locale: string } }
+export function listMarkets() { return request<MarketInfo[]>("/markets") }
 
 export interface SituationProbe {
   status: "SUPPORTED" | "EDGE" | "REFUSED"
@@ -176,7 +184,8 @@ export interface SituationSku {
 }
 /** Where the focal brand stands today, and what the engine says about a few small moves. */
 export interface Situation {
-  currency: string
+  market_id?: string
+  currency: string | { code: string; symbol: string; locale: string }
   focal_brand: string
   competitors: string[]
   period: { basis: string; history_weeks: number; regions: string[]; stores_per_region: number; rows: number; generator_version: string }
@@ -188,10 +197,36 @@ export interface Situation {
   assumption_ids: string[]
   labels: Record<string, "Observed" | "Modeled" | "Assumed">
 }
-export function getSituation() { return request<Situation>("/situation") }
-export function nearestSupported(scenario: ApiScenario) {
+export function getSituation(marketId?: string) { return request<Situation>(withMarket("/situation", marketId)) }
+export function nearestSupported(scenario: ApiScenario, marketId?: string) {
   return post<{ scenario: ApiScenario; scenario_id: string; distance: number; status: "SUPPORTED" | "EDGE" }>(
-    "/scenarios/nearest_supported", { scenario: forEngine([scenario])[0] })
+    withMarket("/scenarios/nearest_supported", marketId), { scenario: forEngine([scenario])[0] })
+}
+
+export interface SimilarRunRow {
+  run_id: string
+  scenario_id: string
+  workspace_id: string | null
+  status: string
+  market_id: string
+  created_at: string | null
+  summary_text: string
+  distance: number
+  label: "Observed"
+  note: string
+}
+/** Historical similarity over persisted runs (pgvector). Not nearest_supported. */
+export function findSimilarRuns(body: {
+  scenario?: ApiScenario
+  query_text?: string
+  limit?: number
+  workspace_id?: string
+}) {
+  const payload = {
+    ...body,
+    scenario: body.scenario ? forEngine([body.scenario])[0] : undefined,
+  }
+  return post<SimilarRunRow[]>("/scenarios/similar", payload)
 }
 
 export interface AgentClaim {
@@ -220,6 +255,8 @@ export interface AgentApiRun {
   alternatives: Array<{ refused_index: number; tool_call_id: string; result_index: number; distance: number; result: ApiScenarioResult }>
   answer: {
     summary: string
+    decision?: string
+    why?: string[]
     recommendations: string[]
     refusals: string[]
     caveats: string[]

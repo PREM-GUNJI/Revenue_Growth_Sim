@@ -31,7 +31,7 @@ export interface AgentRunDetail {
   model_id: string | null
   prompt_version_hash: string | null
   tool_calls: Array<{ call_id: string; name: string; result_hash: string }>
-  answer: null | { summary: string; recommendations: string[]; refusals: string[]; caveats: string[]; claims: AgentClaim[] }
+  answer: null | { summary: string; decision?: string; why?: string[]; recommendations: string[]; refusals: string[]; caveats: string[]; claims: AgentClaim[] }
   audit: null | { passed: boolean; issues: string[]; numbers_checked: number }
 }
 export const getAgentRuns = (workspaceId?: string) => request<AgentRunRow[]>("/agent/runs" + query({ workspace_id: workspaceId }))

@@ -63,7 +63,11 @@ export function AgentRunDetailPage() {
           {run.audit.issues.length > 0 && <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">{run.audit.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>}
         </section>}
         {run.answer && <section className="space-y-4" aria-label="Answer">
-          <p className="leading-7">{run.answer.summary}</p>
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Decision</p>
+            <p className="mt-1 font-display text-xl font-semibold leading-snug">{(run.answer.decision?.trim() || run.answer.summary)}</p>
+            {(run.answer.why ?? []).length > 0 && <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">{(run.answer.why ?? []).map((r) => <li key={r}>{r}</li>)}</ul>}
+          </div>
           {run.answer.refusals.length > 0 && <div><h2 className="font-display text-lg font-semibold">Refusals</h2><ul className="mt-1 list-disc space-y-1 pl-5 text-sm">{run.answer.refusals.map((r) => <li key={r}>{r}</li>)}</ul></div>}
           {run.answer.recommendations.length > 0 && <div><h2 className="font-display text-lg font-semibold">Recommendations</h2><ul className="mt-1 list-disc space-y-1 pl-5 text-sm">{run.answer.recommendations.map((r) => <li key={r}>{r}</li>)}</ul></div>}
           {run.answer.caveats.length > 0 && <div><h2 className="font-display text-lg font-semibold">Caveats</h2><ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-muted-foreground">{run.answer.caveats.map((r) => <li key={r}>{r}</li>)}</ul></div>}

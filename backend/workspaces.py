@@ -19,6 +19,9 @@ from sqlalchemy.orm import Session
 
 from backend import activity, db, export
 from backend.auth import AnalystUser, CurrentUser
+from backend.markets.context import DEFAULT_MARKET_ID
+from backend.markets.deps import market_scope, resolve_market_id
+from backend.markets.packs import load_market
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 MAX_SCENARIOS = 200
@@ -48,6 +51,7 @@ def _scenario_list(value: list[dict[str, Any]] | None) -> list[dict[str, Any]] |
 class WorkspaceIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=500)
+    market_id: str = Field(default=DEFAULT_MARKET_ID, max_length=16)
     scenarios: list[dict[str, Any]] | None = None
 
     @field_validator("name")
@@ -58,6 +62,14 @@ class WorkspaceIn(BaseModel):
             raise ValueError("name must not be blank")
         return value
 
+    @field_validator("market_id")
+    @classmethod
+    def _market(cls, value: str) -> str:
+        try:
+            return resolve_market_id(value)
+        except HTTPException as error:
+            raise ValueError(error.detail) from error
+
     _check = field_validator("scenarios")(lambda cls, v: _scenario_list(v))
 
 
@@ -65,6 +77,15 @@ class WorkspacePatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=500)
     archived: bool | None = None
+    # Present only so a client that tries to change the market gets an explicit 422.
+    market_id: str | None = None
+
+    @field_validator("market_id")
+    @classmethod
+    def _market_locked(cls, value: str | None) -> str | None:
+        if value is not None:
+            raise ValueError("A case's market cannot be changed after it is created")
+        return value
 
 
 class ScenariosIn(BaseModel):
@@ -79,8 +100,11 @@ def _iso(value: datetime) -> str:
 
 
 def _out(workspace: db.Workspace, state: db.WorkspaceState | None) -> dict[str, Any]:
+    market_id = getattr(workspace, "market_id", None) or DEFAULT_MARKET_ID
+    market = load_market(market_id)
     return {
         "id": workspace.id, "name": workspace.name, "description": workspace.description,
+        "market_id": market.id, "currency": market.currency.as_dict(),
         "created_by": workspace.created_by, "updated_by": workspace.updated_by,
         "created_at": _iso(workspace.created_at), "updated_at": _iso(workspace.updated_at),
         "archived": workspace.archived,
@@ -111,6 +135,7 @@ def list_workspaces(user: CurrentUser, include_archived: bool = False) -> list[d
 def create_workspace(body: WorkspaceIn, user: AnalystUser) -> dict[str, Any]:
     now = datetime.now(UTC)
     workspace = db.Workspace(id=uuid4().hex, name=body.name, description=body.description.strip(),
+                             market_id=body.market_id,
                              created_by=user.email, updated_by=user.email, created_at=now, updated_at=now, archived=False)
     state = db.WorkspaceState(workspace_id=workspace.id, scenarios=body.scenarios, version=1, updated_at=now)
     with _session() as session:
@@ -185,11 +210,13 @@ def export_workspace(workspace_id: str, user: CurrentUser) -> Response:
         workspace = _get(session, workspace_id)
         state = session.get(db.WorkspaceState, workspace_id)
         name, saved = workspace.name, list(state.scenarios or []) if state else []
+        market_id = getattr(workspace, "market_id", None) or DEFAULT_MARKET_ID
     try:
-        scenarios, results = export.evaluate(saved)
+        with market_scope(market_id):
+            scenarios, results = export.evaluate(saved)
+            deck = export.build_deck(name, scenarios, results, user.display_name)
     except export.ExportError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    deck = export.build_deck(name, scenarios, results, user.display_name)
     activity.record(user.email, "workspace.export", workspace_id, {"format": "pptx", "scenarios": len(scenarios)})
     filename = re.sub(r"-+", "-", "".join(c if c.isalnum() or c in "-_" else "-" for c in name)).strip("-")[:60] or "workspace"
     return Response(content=deck, media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -203,9 +230,12 @@ def brief_workspace(workspace_id: str, user: CurrentUser, trace_id: str | None =
         workspace = _get(session, workspace_id)
         state = session.get(db.WorkspaceState, workspace_id)
         name, saved = workspace.name, list(state.scenarios or []) if state else []
+        market_id = getattr(workspace, "market_id", None) or DEFAULT_MARKET_ID
     try:
-        scenarios, results = export.evaluate(saved)
+        with market_scope(market_id):
+            scenarios, results = export.evaluate(saved)
+            content = export.build_brief(name, scenarios, results, user.display_name, trace_id)
     except export.ExportError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     activity.record(user.email, "workspace.export", workspace_id, {"format": "brief", "scenarios": len(scenarios)})
-    return Response(content=export.build_brief(name, scenarios, results, user.display_name, trace_id), media_type="text/html")
+    return Response(content=content, media_type="text/html")

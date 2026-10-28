@@ -24,7 +24,8 @@ def scenario(name: str, levers: dict | None = None) -> dict:
 def test_situation_is_deterministic_and_in_inr() -> None:
     first = client.get("/situation").json()
     assert first == client.get("/situation").json() == build_situation()
-    assert first["currency"] == "INR" and first["focal_brand"] == FOCAL_BRAND
+    assert first["currency"]["code"] == "INR" and first["focal_brand"] == FOCAL_BRAND
+    assert first["market_id"] == "in"
     assert {"Observed", "Modeled", "Assumed"} <= set(first["labels"].values())
 
 

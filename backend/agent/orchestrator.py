@@ -8,14 +8,14 @@ import time
 from pathlib import Path
 from typing import Any
 
-from backend.agent.auditor import audit_answer
+from backend.agent.auditor import audit_answer, sanitize_answer_for_audit
 from backend.agent.schemas import AgentAnswer, AgentPlan, AgentRun, Claim, ToolEvent
 from backend.agent.tools import AgentTools
 from backend.agent.trace import TraceRecorder
 from backend.engine.scenario import CostShock, Scenario
 
 # v3: focal-brand objective, baseline context for the planner, bridge and assumption ids in results.
-PROMPT_VERSION_HASH = hashlib.sha256(b"revenue-growth-agent-phase10-14-v3").hexdigest()
+PROMPT_VERSION_HASH = hashlib.sha256(b"revenue-growth-agent-phase10-14-v5-audit-locale").hexdigest()
 
 
 def _research_claims(research: dict, ranking: list[dict], evaluation_call_id: str) -> list[Claim]:
@@ -77,8 +77,11 @@ class ScriptedLLM:
             if item.get("status") == "REFUSED":
                 refused.extend(reason.get("message", "") for reason in item.get("refusal_reasons", []))
         if not ranking:
+            decision = "No supported option produced a numeric result."
             return AgentAnswer(
-                summary="No supported scenario produced a numeric result.",
+                summary=decision,
+                decision=decision,
+                why=["Stay inside the observed price and promotion ranges so the engine can score options."],
                 refusals=refused,
                 caveats=["Revise the request to stay inside the observed support envelope."],
             )
@@ -91,6 +94,10 @@ class ScriptedLLM:
         # name still appears unmodified in tool_events/plan.scenarios for the UI/trace.
         best_name = "the top-ranked scenario"
         gp_value = float(best["focal"]["gp"]["value"])
+        decision = "Prefer " + best_name + " for Aurora weekly gross profit."
+        why = [
+            best_name + " leads on modeled focal gross profit (" + format(gp_value, ".1f") + ").",
+        ]
         modeled = Claim(
             claim_id="modeled-best-gp",
             text=best_name + " has modeled gross profit for the focal brand " + format(gp_value, ".1f") + ".",
@@ -110,8 +117,11 @@ class ScriptedLLM:
             claims += _research_claims(research, ranking, evaluation_call_id)
             caveats.append("Consumer evidence is synthetic and illustrative. It proposed candidate prices only; "
                            "every volume, revenue and margin figure comes from the deterministic engine.")
+            why.append("Synthetic research only proposed prices; commercial outcomes are from the engine.")
         return AgentAnswer(
-            summary="The comparison uses deterministic engine results.",
+            summary=decision,
+            decision=decision,
+            why=why[:2],
             recommendations=[recommended.text],
             refusals=refused,
             caveats=caveats,
@@ -261,6 +271,7 @@ class AgentOrchestrator:
             model_time_ms += (time.perf_counter() - model_started) * 1000
             if not isinstance(answer, AgentAnswer):
                 answer = AgentAnswer.model_validate(answer)
+            answer = sanitize_answer_for_audit(answer, events)
             verdict = audit_answer(answer, events)
             if verdict.passed:
                 break

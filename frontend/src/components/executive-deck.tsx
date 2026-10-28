@@ -1,6 +1,8 @@
 import { Link } from "react-router-dom"
 import { LabelTag } from "@/components/label-tag"
 import { rupees, signed, signedRupees, tone } from "@/lib/catalog"
+import type { Currency } from "@/lib/currency"
+import { INR } from "@/lib/currency"
 import type { ScenarioBridge, ScenarioResult } from "@/lib/types"
 import { pickBest } from "@/workspace/helpers"
 
@@ -22,7 +24,20 @@ export function whySentence(bridge: ScenarioBridge | undefined): string | undefi
     .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
     .slice(0, 2)
   if (!drivers.length) return undefined
-  const parts = drivers.map((d) => `${d.label} (${signedRupees(d.value)})`)
+  const parts = drivers.map((d) => `${d.label} (${signedRupees(d.value, INR)})`)
+  if (parts.length === 1) return `Profit moved mainly on ${parts[0]}.`
+  return `Profit moved mainly on ${parts[0]} and ${parts[1]}.`
+}
+
+export function whySentenceFor(bridge: ScenarioBridge | undefined, currency: Currency): string | undefined {
+  if (!bridge) return undefined
+  const drivers = BRIDGE_LABELS
+    .map(([key, label]) => ({ key, label, value: bridge[key] }))
+    .filter((d) => Math.abs(d.value) >= 0.5)
+    .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
+    .slice(0, 2)
+  if (!drivers.length) return undefined
+  const parts = drivers.map((d) => `${d.label} (${signedRupees(d.value, currency)})`)
   if (parts.length === 1) return `Profit moved mainly on ${parts[0]}.`
   return `Profit moved mainly on ${parts[0]} and ${parts[1]}.`
 }
@@ -44,6 +59,7 @@ export function ExecutiveDeck({
   onExport,
   exportBusy,
   exportError,
+  currency = INR,
 }: {
   caseName: string
   question?: string
@@ -54,17 +70,18 @@ export function ExecutiveDeck({
   onExport: () => void
   exportBusy: boolean
   exportError?: string
+  currency?: Currency
 }) {
   const best = pickBest(results, guardrail)
   const winner = best && best.abs && best.abs.gpChange > 0 ? best : undefined
   const options = glanceOptions(results)
   const refused = results.filter((item) => item.status === "REFUSED")
-  const why = whySentence(winner?.bridge)
+  const why = whySentenceFor(winner?.bridge, currency)
 
   return (
     <article className="executive-deck mx-auto flex w-full max-w-5xl flex-col gap-10 px-5 py-10 md:px-10 md:py-14">
       <header className="space-y-3 print:space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Decision brief · Aurora · weekly INR</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Decision brief · Aurora · weekly {currency.code}</p>
         <h1 className="font-display text-4xl font-semibold tracking-tight text-ink md:text-5xl">{caseName}</h1>
         <p className="max-w-2xl text-lg text-muted-foreground md:text-xl">
           {question?.trim() || "What price, pack or promotion move improves Aurora gross profit without breaking the volume guardrail?"}
@@ -88,7 +105,7 @@ export function ExecutiveDeck({
           {winner?.abs && winner.delta ? <>
             <h2 className="font-display text-3xl font-semibold md:text-4xl">{winner.name}</h2>
             <p className={`num text-5xl font-bold leading-none tracking-tight md:text-6xl ${winner.abs.gpChange >= 0 ? "text-[#4ade80]" : "text-[#fca5a5]"}`}>
-              {signedRupees(winner.abs.gpChange)}
+              {signedRupees(winner.abs.gpChange, currency)}
             </p>
             <p className="text-lg text-white/75">gross profit a week · volume {signed(winner.delta.volumePct)} · margin {signed(winner.delta.marginPct)}</p>
             {why && <p className="max-w-2xl text-base text-white/80">{why}</p>}
@@ -131,7 +148,7 @@ export function ExecutiveDeck({
                     <p className="text-sm text-muted-foreground">Volume {signed(item.delta!.volumePct)}</p>
                   </div>
                   <div className="text-right">
-                    <p className={`num text-2xl font-semibold ${tone(item.abs!.gpChange)}`}>{signedRupees(item.abs!.gpChange)}</p>
+                    <p className={`num text-2xl font-semibold ${tone(item.abs!.gpChange)}`}>{signedRupees(item.abs!.gpChange, currency)}</p>
                     <p className="text-xs text-muted-foreground">a week · {signed(item.delta!.marginPct)} GP</p>
                   </div>
                 </li>
@@ -149,7 +166,7 @@ export function ExecutiveDeck({
 
       <footer className="space-y-2 border-t pt-6 text-sm text-muted-foreground">
         <p>Synthetic data. Modeled figures, not observed outcomes. Recommendation rests on engine results inside the support envelope.</p>
-        <p className="text-xs">Baseline weekly gross profit context: options are measured against Aurora’s current position{results.find((r) => r.isBaseline)?.abs ? ` (${rupees(results.find((r) => r.isBaseline)!.abs!.gp)} a week)` : ""}).</p>
+        <p className="text-xs">Baseline weekly gross profit context: options are measured against Aurora’s current position{results.find((r) => r.isBaseline)?.abs ? ` (${rupees(results.find((r) => r.isBaseline)!.abs!.gp, currency)} a week)` : ""}).</p>
       </footer>
     </article>
   )

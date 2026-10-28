@@ -1,0 +1,38 @@
+# Eurozone — synthetic soft-drink market in EUR. Numbers are illustrative,
+# not live FX of the India pack and not real retailer prices.
+id: eu
+label: Eurozone
+currency:
+  code: EUR
+  symbol: "€"
+  locale: de-DE
+money:
+  A-013: 0.11
+  A-014a: 0.16
+  A-014b: 0.14
+  A-014c: 0.26
+  A-014d: 0.88
+  A-015: 0.07
+  A-028: 1.29
+  A-029: 1.49
+  A-030: 2.19
+  A-031: 5.49
+  A-035: 0.05
+demand:
+  A-001: -2.2
+  A-002: -1.55
+  A-003: -1.15
+  A-004: -1.05
+  A-007: 0.58
+  A-008: 0.38
+generator:
+  base_volume_by_format:
+    can_330ml: 200.0
+    pet_500ml: 150.0
+    bottle_1500ml: 70.0
+    multipack_6x330ml: 45.0
+  list_price_by_format:
+    can_330ml: 1.29
+    pet_500ml: 1.49
+    bottle_1500ml: 2.19
+    multipack_6x330ml: 5.49

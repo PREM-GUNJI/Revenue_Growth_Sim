@@ -58,12 +58,19 @@ function ExportButton({ workspaceId, disabled }: { workspaceId: string; disabled
 
 /** The four steps of a decision, in order. Each is a real URL, so a step can be shared or reloaded. */
 function Stepper({ base }: { base: string }) {
-  const steps = [["Situation", base, true], ["Options", `${base}/simulator`, false], ["Compare", `${base}/board`, false], ["Recommend", `${base}/assistant`, false]] as const
-  return <nav aria-label="Decision steps" className="border-b bg-card/60 print:hidden">
-    <ol className="mx-auto flex max-w-[1480px] flex-wrap gap-1 px-5 py-2 md:px-8">
-      {steps.map(([label, to, end], i) => <li key={label}>
-        <NavLink to={to} end={end} className={({ isActive }) => `flex items-center gap-2 rounded-md px-3 py-1.5 text-sm ${isActive ? "bg-ink font-medium text-white" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}>
-          <span className="num text-xs opacity-70">{i + 1}</span>{label}</NavLink></li>)}
+  const steps = [["Situation", "Where Aurora stands", base, true], ["Options", "Build scenarios", `${base}/simulator`, false], ["Compare", "Side-by-side", `${base}/board`, false], ["Recommend", "Decision + assistant", `${base}/assistant`, false]] as const
+  return <nav aria-label="Decision steps" className="sticky top-[3.25rem] z-10 border-b bg-background/95 backdrop-blur-md print:hidden">
+    <ol className="mx-auto flex max-w-[1480px] gap-1 overflow-x-auto px-5 py-2.5 md:px-8">
+      {steps.map(([label, hint, to, end], i) => (
+        <li key={label} className="flex min-w-0 shrink-0 items-center gap-1">
+          {i > 0 && <span className="mx-1 hidden h-px w-6 bg-border sm:block" aria-hidden />}
+          <NavLink to={to} end={end} title={hint} className={({ isActive }) =>
+            `group flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm transition ${isActive ? "bg-ink font-medium text-white shadow-sm" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}>
+            <span className="num flex size-5 items-center justify-center rounded-full bg-black/[0.08] text-[11px] font-semibold">{i + 1}</span>
+            <span>{label}</span>
+          </NavLink>
+        </li>
+      ))}
     </ol>
   </nav>
 }

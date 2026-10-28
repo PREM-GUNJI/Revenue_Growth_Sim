@@ -5,6 +5,7 @@ import { ProvenanceChain } from "@/components/evidence-parts"
 import { LabelTag } from "@/components/label-tag"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { rupees, signed, signedRupees, tone, units } from "@/lib/catalog"
+import { useWorkspace } from "@/workspace/workspace-context"
 import { useDetailMode } from "@/lib/preferences"
 import type { ScenarioBridge, ScenarioDelta, ScenarioResult } from "@/lib/types"
 
@@ -29,12 +30,13 @@ export function LikelyRange() {
 type SortKey = "name" | "units" | "revenue" | "gp" | "change" | "margin"
 
 export function Why({ bridge }: { bridge: ScenarioBridge }) {
+  const { currency } = useWorkspace()
   return <div className="flex flex-wrap items-center gap-1.5 text-xs" aria-label="Why the profit moved">
     <span className="text-muted-foreground">Why:</span>
     {BRIDGE.filter(([key]) => Math.abs(bridge[key]) >= 0.5).map(([key, label, meaning]) => <Tooltip key={key}>
-      <TooltipTrigger render={<span className={`num cursor-help rounded border px-1.5 py-0.5 ${tone(bridge[key])}`} />}>{label} {signedRupees(bridge[key])}</TooltipTrigger>
+      <TooltipTrigger render={<span className={`num cursor-help rounded border px-1.5 py-0.5 ${tone(bridge[key])}`} />}>{label} {signedRupees(bridge[key], currency)}</TooltipTrigger>
       <TooltipContent>{meaning}</TooltipContent></Tooltip>)}
-    <span className="num font-semibold">= {signedRupees(bridge.total)} a week</span>
+    <span className="num font-semibold">= {signedRupees(bridge.total, currency)} a week</span>
   </div>
 }
 
@@ -50,6 +52,7 @@ export function ComparisonBoard({ scenarios, onUseNearest, volumeGuardrailPct, o
 }) {
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "gp", desc: true })
   const [detail] = useDetailMode()
+  const { currency } = useWorkspace()
   const ok = scenarios.filter((s) => s.status !== "REFUSED" && s.delta && s.abs)
   const refused = scenarios.filter((s) => s.status === "REFUSED")
   const scale = (pick: (d: ScenarioDelta) => number, band = false) =>
@@ -80,18 +83,20 @@ export function ComparisonBoard({ scenarios, onUseNearest, volumeGuardrailPct, o
 
   return <div className="space-y-5">
     {ok.length > 0 && <section aria-label="Summary table" className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2"><h2 className="font-display text-lg font-semibold">All options, side by side</h2><LabelTag label="Modeled" />
-        <span className="text-xs text-muted-foreground">Aurora only, per typical week, in rupees. Click a heading to sort.</span></div>
-      <div className="overflow-x-auto rounded-lg border bg-card"><table className="w-full min-w-[860px] text-sm">
-        <thead><tr className="text-xs text-muted-foreground">{head("name", "Scenario", "text-left")}{head("units", "Units")}{head("revenue", "Revenue")}{head("gp", "Gross profit")}{head("change", "Change vs baseline")}{head("margin", "Margin")}<th scope="col" className="px-3 py-2 text-right font-normal">Likely gross profit range</th></tr></thead>
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2"><h2 className="font-display text-xl font-semibold tracking-tight">All options, side by side</h2><LabelTag label="Modeled" /></div>
+        <span className="text-xs text-muted-foreground">Aurora only · {currency.code} / week · click a heading to sort</span>
+      </div>
+      <div className="overflow-x-auto rounded-xl border bg-card shadow-sm"><table className="w-full min-w-[860px] text-sm">
+        <thead><tr className="border-b bg-secondary/40 text-xs text-muted-foreground">{head("name", "Scenario", "text-left")}{head("units", "Units")}{head("revenue", "Revenue")}{head("gp", "Gross profit")}{head("change", "Change vs baseline")}{head("margin", "Margin")}<th scope="col" className="px-3 py-2 text-right font-normal">Likely gross profit range</th></tr></thead>
         <tbody>{sorted.map((s) => {
           const a = s.abs!
-          return <tr key={s.scenarioId + s.name} className={`border-t ${s === winner ? "bg-gain/5" : ""}`}>
+          return <tr key={s.scenarioId + s.name} className={`border-t ${s === winner ? "bg-gain/5" : "hover:bg-secondary/20"}`}>
             <td className="px-3 py-2.5 font-medium">{s.name}{s.isBaseline && <span className={`${chip} ml-2 bg-secondary font-normal`}>Baseline</span>}{s === winner && <span className={`${chip} ml-2 bg-gain/15 font-medium text-gain`}>Winner</span>}</td>
-            <td className="num px-3 py-2.5 text-right">{units(a.units)}</td><td className="num px-3 py-2.5 text-right">{rupees(a.revenue)}</td><td className="num px-3 py-2.5 text-right font-semibold">{rupees(a.gp)}</td>
-            <td className={`num px-3 py-2.5 text-right ${s.isBaseline ? "text-muted-foreground" : tone(a.gpChange)}`}>{s.isBaseline ? "—" : <>{signedRupees(a.gpChange)} <span className="text-xs">({signed(s.delta!.marginPct)})</span></>}</td>
+            <td className="num px-3 py-2.5 text-right">{units(a.units)}</td><td className="num px-3 py-2.5 text-right">{rupees(a.revenue, currency)}</td><td className="num px-3 py-2.5 text-right font-semibold">{rupees(a.gp, currency)}</td>
+            <td className={`num px-3 py-2.5 text-right ${s.isBaseline ? "text-muted-foreground" : tone(a.gpChange)}`}>{s.isBaseline ? "—" : <>{signedRupees(a.gpChange, currency)} <span className="text-xs">({signed(s.delta!.marginPct)})</span></>}</td>
             <td className="num px-3 py-2.5 text-right">{a.marginPct.toFixed(1)}%</td>
-            <td className="num px-3 py-2.5 text-right text-xs text-muted-foreground">{rupees(a.gpRange[0])} to {rupees(a.gpRange[1])}</td></tr>
+            <td className="num px-3 py-2.5 text-right text-xs text-muted-foreground">{rupees(a.gpRange[0], currency)} to {rupees(a.gpRange[1], currency)}</td></tr>
         })}
           {refused.map((s) => <tr key={s.scenarioId + s.name} className="hatch border-t"><td className="px-3 py-2.5 font-medium">{s.name}</td><td colSpan={6} className="px-3 py-2.5 text-loss">REFUSED: we haven't seen this in the data, so we won't guess. No numbers.</td></tr>)}</tbody></table></div>
       <p className="text-xs text-muted-foreground"><LikelyRange /> shows how much Aurora's gross profit moves if our assumptions are somewhat off{detail && " (P10 to P90 across the assumption ranges)"}. It is an assumption range, not a forecast interval.</p>
@@ -100,7 +105,7 @@ export function ComparisonBoard({ scenarios, onUseNearest, volumeGuardrailPct, o
     <div className="space-y-3">
       {ok.map((s) => {
         const d = s.delta as ScenarioDelta, a = s.abs!, loser = d.marginPct < 0 && !s.isBaseline
-        return <article key={s.scenarioId + s.name} className={`rounded-lg border bg-card px-5 py-4 ${s.isBaseline ? "border-dashed" : ""} ${s === winner ? "border-gain/60 ring-1 ring-gain/30" : ""}`}>
+        return <article key={s.scenarioId + s.name} className={`rounded-xl border bg-card px-5 py-4 shadow-sm transition ${s.isBaseline ? "border-dashed" : ""} ${s === winner ? "border-gain/60 ring-1 ring-gain/30" : "hover:border-foreground/15"}`}>
           <div className="grid items-center gap-x-8 gap-y-4 md:grid-cols-[minmax(0,13rem)_repeat(3,minmax(0,1fr))]">
             <div>
               <h3 className="font-display text-base font-semibold leading-tight">{s.name}</h3>
@@ -114,12 +119,12 @@ export function ComparisonBoard({ scenarios, onUseNearest, volumeGuardrailPct, o
               </div>
             </div>
             <Metric label="Volume" value={d.volumePct} max={vMax} extra={units(a.units) + " units"} />
-            <Metric label="Revenue" value={d.revenuePct} max={rMax} extra={rupees(a.revenue)} />
+            <Metric label="Revenue" value={d.revenuePct} max={rMax} extra={rupees(a.revenue, currency)} />
             <Tooltip>
               <TooltipTrigger render={<div className="min-w-0 cursor-help text-left" />}>
-                <Metric label="Gross profit" value={d.marginPct} max={mMax} strong band={s.p10 && s.p90 ? [s.p10.marginPct, s.p90.marginPct] : undefined} extra={rupees(a.gp) + " · margin " + signed(d.marginPpt, 1).replace("%", " pp")} />
+                <Metric label="Gross profit" value={d.marginPct} max={mMax} strong band={s.p10 && s.p90 ? [s.p10.marginPct, s.p90.marginPct] : undefined} extra={rupees(a.gp, currency) + " · margin " + signed(d.marginPpt, 1).replace("%", " pp")} />
               </TooltipTrigger>
-              <TooltipContent>Likely range for Aurora's gross profit: {rupees(a.gpRange[0])} to {rupees(a.gpRange[1])} a week ({signed(s.p10?.marginPct ?? 0)} to {signed(s.p90?.marginPct ?? 0)}) if our assumptions are somewhat off. Not a forecast interval.</TooltipContent>
+              <TooltipContent>Likely range for Aurora's gross profit: {rupees(a.gpRange[0], currency)} to {rupees(a.gpRange[1], currency)} a week ({signed(s.p10?.marginPct ?? 0)} to {signed(s.p90?.marginPct ?? 0)}) if our assumptions are somewhat off. Not a forecast interval.</TooltipContent>
             </Tooltip>
           </div>
           {!s.isBaseline && s.bridge && <div className="mt-3"><Why bridge={s.bridge} /></div>}
@@ -132,7 +137,7 @@ export function ComparisonBoard({ scenarios, onUseNearest, volumeGuardrailPct, o
             <div className="mt-2"><ProvenanceChain source={s.source} scenarioId={s.scenarioId} resultHash={s.resultHash} /></div></details>}
         </article>
       })}
-      {refused.map((s) => <article key={s.scenarioId + s.name} className="hatch rounded-lg border border-dashed border-loss/40 bg-card px-5 py-4">
+      {refused.map((s) => <article key={s.scenarioId + s.name} className="hatch rounded-xl border border-dashed border-loss/40 bg-card/80 px-5 py-4 opacity-95">
         <div className="flex flex-wrap items-center gap-2"><h3 className="font-display text-base font-semibold">{s.name}</h3><span className="rounded bg-loss px-1.5 py-0.5 text-xs font-medium text-white">REFUSED</span>
           {s.source && <span className={`${chip} bg-edge/10 text-edge`}>From {s.source.methodology.split(" (")[0]} study</span>}</div>
         {s.refusals?.length ? <RefusalDetail reasons={s.refusals} /> : <p className="mt-2 max-w-2xl text-sm">{s.refusalReason}</p>}

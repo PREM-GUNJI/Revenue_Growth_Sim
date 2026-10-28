@@ -1,4 +1,6 @@
-﻿services:
+﻿# Optional convenience only. Similarity search does not require Docker —
+# point DATABASE_URL at any PostgreSQL that has the pgvector extension.
+services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped

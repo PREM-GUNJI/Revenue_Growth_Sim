@@ -2,6 +2,7 @@ import { createContext, useContext } from "react"
 import type { HeatCell } from "@/components/analytics-views"
 import type { AgentApiRun, ApiScenario, ApiScenarioResult, EnvelopeInfo, EvidenceDefaults, Situation } from "@/lib/api"
 import type { Assumption, ScenarioResult } from "@/lib/types"
+import type { Currency } from "@/lib/currency"
 import type { WorkspaceMeta } from "@/lib/workspaces"
 
 export type WorkspaceStatus = "loading" | "ready" | "notfound" | "failed"
@@ -39,6 +40,8 @@ export interface WorkspaceValue {
   /** The server's own engine time for the last evaluation, separate from the network round trip. */
   engineMs?: number
   situation?: Situation
+  /** Locked market currency for this case (from the workspace / situation). */
+  currency: Currency
   assumptionsOpen: boolean
   setAssumptionsOpen: (open: boolean) => void
   /** Assumption ids to highlight in the drawer (those the clicked result depends on). */

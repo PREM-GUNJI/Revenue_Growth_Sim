@@ -4,7 +4,8 @@
   "declared_gaps": [
     "price_index > 1.06 and promo_depth_pct > 20 (for the same sku, region, week)"
   ],
-  "generator_version": "1.1.0",
+  "generator_version": "1.2.0",
+  "market_id": "in",
   "regions": [
     "North",
     "South",

@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { signedRupees } from "@/lib/catalog"
 import type { ScenarioBridge, ScenarioResult } from "@/lib/types"
+import { useWorkspace } from "@/workspace/workspace-context"
 export type HeatCell = { price: number; depth: number; status: "SUPPORTED" | "EDGE" | "REFUSED"; gp: number | null }
 
 const W = 620
@@ -36,6 +37,8 @@ function TradeoffPlane({ scenarios }: { scenarios: ScenarioResult[] }) {
 }
 
 function MarginWaterfall({ bridge }: { bridge?: ScenarioBridge }) {
+  const { currency } = useWorkspace()
+  const money = (v: number) => signedRupees(v, currency)
   const totals = keys.map((key) => bridge?.[key] ?? 0)
   const cumulative = [0]
   totals.forEach((amount) => cumulative.push(cumulative[cumulative.length - 1] + amount))
@@ -45,9 +48,9 @@ function MarginWaterfall({ bridge }: { bridge?: ScenarioBridge }) {
   const zero = y(0)
   return <section className="rounded-lg border bg-card p-5">
     <h3 className="font-display text-lg font-semibold">Why gross profit moved</h3>
-    <p className="mb-2 text-xs text-muted-foreground">Aurora’s weekly gross-profit change against the baseline, in rupees, split into its causes. The bars add up exactly to the total.</p>
+    <p className="mb-2 text-xs text-muted-foreground">Aurora’s weekly gross-profit change against the baseline, in {currency.code}, split into its causes. The bars add up exactly to the total.</p>
     {!bridge ? <p className="text-sm text-muted-foreground">Select an evaluated scenario to view its bridge.</p> :
-      <div className="overflow-x-auto"><svg role="img" aria-label="Gross profit change waterfall in rupees" viewBox={"0 0 " + W + " 280"} className="h-64 min-w-[520px] w-full">
+      <div className="overflow-x-auto"><svg role="img" aria-label={`Gross profit change waterfall in ${currency.code}`} viewBox={"0 0 " + W + " 280"} className="h-64 min-w-[520px] w-full">
         <line x1="28" y1={zero} x2="600" y2={zero} stroke="currentColor" opacity=".3" />
         {totals.map((amount, i) => {
           const start = cumulative[i], end = cumulative[i + 1]
@@ -55,10 +58,10 @@ function MarginWaterfall({ bridge }: { bridge?: ScenarioBridge }) {
           return <g key={keys[i]}>
             <rect x={42 + i * 94} y={top} width="48" height={height} rx="3" fill={amount < 0 ? "var(--loss)" : "var(--gain)"} />
             <text x={66 + i * 94} y="246" textAnchor="middle" fontSize="9" fill="currentColor">{labels[i]}</text>
-            <text x={66 + i * 94} y={top - 5} textAnchor="middle" fontSize="9" fill="currentColor">{signedRupees(amount)}</text>
+            <text x={66 + i * 94} y={top - 5} textAnchor="middle" fontSize="9" fill="currentColor">{money(amount)}</text>
           </g>
         })}
-        <text x="310" y="270" textAnchor="middle" fontSize="11" fill="currentColor">Total {signedRupees(bridge.total)} a week</text>
+        <text x="310" y="270" textAnchor="middle" fontSize="11" fill="currentColor">Total {money(bridge.total)} a week</text>
       </svg></div>}
   </section>
 }

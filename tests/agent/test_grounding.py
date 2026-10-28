@@ -60,3 +60,14 @@ def test_pack_label_exemption_does_not_excuse_other_numbers():
     }
     for text, flagged in cases.items():
         assert check_numeric_grounding(AgentAnswer(summary=text), [tool])[0] == [f"Ungrounded number in answer: {flagged}"], text
+
+
+def test_indian_lakh_grouping_is_one_grounded_money_figure():
+    """Regression: ₹2,27,764 was scanned as ungrounded '27,764' while 227764 was in tool results."""
+    tool = event([{"status": "SUPPORTED", "focal": {"gp": {"value": 227764.19}}}])
+    indian = AgentAnswer(summary="Weekly gross profit is ₹2,27,764.")
+    western = AgentAnswer(summary="Weekly gross profit is ₹227,764.")
+    assert check_numeric_grounding(indian, [tool])[0] == []
+    assert check_numeric_grounding(western, [tool])[0] == []
+    fake = AgentAnswer(summary="Weekly gross profit is ₹2,99,999.")
+    assert check_numeric_grounding(fake, [tool])[0] == ["Ungrounded number in answer: 299999"]

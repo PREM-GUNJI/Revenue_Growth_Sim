@@ -49,6 +49,8 @@ class TaskScore:
 def _answer_texts(answer: AgentAnswer) -> list[str]:
     return [
         answer.summary,
+        answer.decision,
+        *answer.why,
         *answer.recommendations,
         *answer.refusals,
         *answer.caveats,

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react"
 import type { FormEvent } from "react"
 import { Link, useNavigate, useOutletContext } from "react-router-dom"
-import { evaluateScenarios, getSituation } from "@/lib/api"
-import type { Situation } from "@/lib/api"
+import { evaluateScenarios, getSituation, listMarkets } from "@/lib/api"
+import type { MarketInfo } from "@/lib/api"
 import { PACKS, signed, signedRupees } from "@/lib/catalog"
+import { asCurrency, INR } from "@/lib/currency"
 import { createWorkspace, getHubSummary, getWorkspaceScenarios, listWorkspaces, updateWorkspace } from "@/lib/workspaces"
 import type { HubSummary, WorkspaceMeta } from "@/lib/workspaces"
 import type { AppOutletContext } from "@/layout/app-layout"
@@ -13,6 +14,24 @@ import { DEFAULT_INPUT, TEMPLATES } from "@/workspace/templates"
 import type { TemplateInput } from "@/workspace/templates"
 
 const GUARDRAIL_PCT = 5
+
+type Starter = {
+  id: string
+  label: string
+  hint: string
+  marketId: string
+  templateId: string
+  input: TemplateInput
+}
+
+/** One-click examples that teach the product by starting a real case. */
+const STARTERS: Starter[] = [
+  { id: "costs8", label: "Costs +8%", hint: "Protect GP when inputs rise", marketId: "in", templateId: "costs", input: { pack: "bottle_1500ml", costPct: 8 } },
+  { id: "price-can", label: "Take price on can", hint: "Test +2% to +5% on 330 ml", marketId: "in", templateId: "price", input: { pack: "can_330ml", costPct: 8 } },
+  { id: "promo-15", label: "Promo on 1.5 L", hint: "Is 10–40% TPR worth it?", marketId: "in", templateId: "promo", input: { pack: "bottle_1500ml", costPct: 8 } },
+  { id: "mix", label: "Bigger packs", hint: "Steer volume to 1.5 L / 6-pack", marketId: "in", templateId: "mix", input: DEFAULT_INPUT },
+  { id: "us-tour", label: "US market tour", hint: "Same decisions in USD", marketId: "us", templateId: "example", input: DEFAULT_INPUT },
+]
 
 function timeAgo(iso: string): string {
   const seconds = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000)
@@ -27,9 +46,6 @@ const firstName = (displayName: string) => displayName.split(" ")[0] || displayN
 
 type Headline = { kind: "loading" } | { kind: "none" } | { kind: "best"; name: string; marginPct: number; gpChange: number } | { kind: "error" }
 const headlineCache = new Map<string, Headline>()
-// The engine's own baseline is the same for every case, so it is fetched once.
-let situationOnce: Promise<Situation> | undefined
-const baselineOnce = () => (situationOnce ??= getSituation().catch((cause: unknown) => { situationOnce = undefined; throw cause }))
 
 /** Evaluates a workspace's saved scenarios with the engine and names its best move. Numbers come only from the engine. */
 function useHeadline(workspace: WorkspaceMeta): Headline {
@@ -45,9 +61,9 @@ function useHeadline(workspace: WorkspaceMeta): Headline {
         const scenarios = saved.scenarios && saved.scenarios.length > 1 ? saved.scenarios : null
         if (!scenarios) headline = { kind: "none" }
         else {
-          const baseline = (await baselineOnce()).totals.focal
-          const best = pickBest(toUiResults(await evaluateScenarios(scenarios, 0, 42), scenarios, baseline), GUARDRAIL_PCT)
-          // Only a real improvement is a headline; "best of a bad lot" is not.
+          const marketId = workspace.market_id || "in"
+          const baseline = (await getSituation(marketId)).totals.focal
+          const best = pickBest(toUiResults(await evaluateScenarios(scenarios, 0, 42, undefined, marketId), scenarios, baseline), GUARDRAIL_PCT)
           headline = best?.delta && best.abs && best.abs.gpChange > 0 ? { kind: "best", name: best.name, marginPct: best.delta.marginPct, gpChange: best.abs.gpChange } : { kind: "none" }
         }
       } catch {
@@ -57,14 +73,20 @@ function useHeadline(workspace: WorkspaceMeta): Headline {
       if (active) setState({ key, headline })
     })()
     return () => { active = false }
-  }, [key, workspace.id])
+  }, [key, workspace.id, workspace.market_id])
   return state.key === key ? state.headline : headlineCache.get(key) ?? { kind: "loading" }
+}
+
+function MarketBadge({ code, symbol }: { code?: string; symbol?: string }) {
+  const label = code ?? "INR"
+  return <span className="inline-flex items-center gap-1 rounded-md border bg-secondary/80 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-secondary-foreground">
+    <span className="num opacity-80">{symbol ?? ""}</span>{label}
+  </span>
 }
 
 function WorkspaceCard({ workspace, onChanged }: { workspace: WorkspaceMeta; onChanged: () => void }) {
   const headline = useHeadline(workspace)
   const editor = canEdit(useRole())
-  // A workspace nobody has changed since it was created says "created", not "edited".
   const edited = new Date(workspace.updated_at).getTime() - new Date(workspace.created_at).getTime() > 2000
   const [confirming, setConfirming] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -73,21 +95,28 @@ function WorkspaceCard({ workspace, onChanged }: { workspace: WorkspaceMeta; onC
     try { await updateWorkspace(workspace.id, { archived }); setConfirming(false); onChanged() } catch { setFailed(true) }
   }
   return (
-    <li className={`flex flex-col rounded-xl border bg-card p-5 ${workspace.archived ? "opacity-70" : ""}`}>
+    <li className={`group flex flex-col rounded-2xl border bg-card p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md ${workspace.archived ? "opacity-70" : ""}`}>
       <div className="flex items-start justify-between gap-3">
-        <h3 className="font-display text-lg font-semibold leading-tight">{workspace.name}</h3>
-        {workspace.archived && <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">Archived</span>}
+        <h3 className="font-display text-lg font-semibold leading-tight tracking-tight">{workspace.name}</h3>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          <MarketBadge code={workspace.currency?.code} symbol={workspace.currency?.symbol} />
+          {workspace.archived && <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">Archived</span>}
+        </div>
       </div>
-      {workspace.description && <p className="mt-1 line-clamp-3 text-sm text-muted-foreground" title={workspace.description}>{workspace.description}</p>}
-      <p className="mt-3 text-sm">
-        {headline.kind === "loading" && <span className="text-muted-foreground">Evaluating…</span>}
-        {headline.kind === "none" && <span className="text-muted-foreground">{workspace.scenario_count > 1 ? `No option beats the baseline within a ${GUARDRAIL_PCT}% volume guardrail yet` : "Add options to compare them with the baseline"}</span>}
-        {headline.kind === "error" && <span className="text-muted-foreground">Results unavailable</span>}
-        {headline.kind === "best" && <><span className="num text-xl font-bold text-gain">{signedRupees(headline.gpChange)}</span> <span className="text-muted-foreground">a week ({signed(headline.marginPct)}) gross profit, {headline.name}</span></>}
-      </p>
+      {workspace.description && <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-muted-foreground" title={workspace.description}>{workspace.description}</p>}
+      <div className="mt-4 min-h-[3.25rem]">
+        {headline.kind === "loading" && <p className="text-sm text-muted-foreground">Evaluating…</p>}
+        {headline.kind === "none" && <p className="text-sm text-muted-foreground">{workspace.scenario_count > 1 ? `No option beats baseline within a ${GUARDRAIL_PCT}% volume guardrail yet` : "Add options to compare them with the baseline"}</p>}
+        {headline.kind === "error" && <p className="text-sm text-muted-foreground">Results unavailable</p>}
+        {headline.kind === "best" && <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Best weekly gross profit</p>
+          <p className="mt-0.5"><span className="num text-2xl font-bold tracking-tight text-gain">{signedRupees(headline.gpChange, asCurrency(workspace.currency ?? INR))}</span>
+            <span className="ml-2 text-sm text-muted-foreground">({signed(headline.marginPct)}) · {headline.name}</span></p>
+        </div>}
+      </div>
       <p className="mt-auto pt-4 text-xs text-muted-foreground">{workspace.scenario_count} option{workspace.scenario_count === 1 ? "" : "s"} · {edited ? `edited ${timeAgo(workspace.updated_at)} by ${workspace.updated_by}` : `created ${timeAgo(workspace.created_at)} by ${workspace.created_by}`}</p>
-      <div className="mt-3 flex items-center gap-2">
-        {!workspace.archived && <Link to={editor ? `/w/${workspace.id}` : `/w/${workspace.id}/executive`} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:brightness-110">{editor ? "Open" : "Open brief"}</Link>}
+      <div className="mt-3 flex items-center gap-2 border-t pt-3">
+        {!workspace.archived && <Link to={editor ? `/w/${workspace.id}` : `/w/${workspace.id}/executive`} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:brightness-110">{editor ? "Open" : "Open brief"}</Link>}
         {editor && (workspace.archived
           ? <button type="button" onClick={() => void setArchived(false)} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-secondary">Restore</button>
           : confirming
@@ -101,11 +130,25 @@ function WorkspaceCard({ workspace, onChanged }: { workspace: WorkspaceMeta; onC
   )
 }
 
-function NewWorkspaceForm({ onCancel }: { onCancel?: () => void }) {
+function StepDot({ n, label, active, done }: { n: number; label: string; active: boolean; done: boolean }) {
+  return <div className={`flex items-center gap-2 text-sm ${active ? "font-semibold text-foreground" : done ? "text-foreground/70" : "text-muted-foreground"}`}>
+    <span className={`flex size-7 items-center justify-center rounded-full text-xs ${active ? "bg-ink text-white" : done ? "bg-primary/15 text-primary" : "border bg-card"}`}>{done && !active ? "✓" : n}</span>
+    <span className="hidden sm:inline">{label}</span>
+  </div>
+}
+
+function NewWorkspaceForm({
+  onCancel, markets, initial,
+}: {
+  onCancel?: () => void
+  markets: MarketInfo[]
+  initial?: Partial<{ marketId: string; templateId: string; input: TemplateInput }>
+}) {
   const navigate = useNavigate()
-  const [templateId, setTemplateId] = useState("example")
-  const [input, setInput] = useState<TemplateInput>(DEFAULT_INPUT)
-  // Name and question follow the chosen template until the user types their own.
+  const [step, setStep] = useState(0)
+  const [templateId, setTemplateId] = useState(initial?.templateId ?? "example")
+  const [marketId, setMarketId] = useState(initial?.marketId ?? "in")
+  const [input, setInput] = useState<TemplateInput>(initial?.input ?? DEFAULT_INPUT)
   const [nameOverride, setNameOverride] = useState<string>()
   const [descriptionOverride, setDescriptionOverride] = useState<string>()
   const [busy, setBusy] = useState(false)
@@ -114,50 +157,105 @@ function NewWorkspaceForm({ onCancel }: { onCancel?: () => void }) {
   const name = nameOverride ?? template.name(input)
   const description = descriptionOverride ?? template.question(input)
   const costValid = Number.isFinite(input.costPct) && input.costPct >= 1 && input.costPct <= 50
+  const optionCount = template.build(input).length
+  const marketList = markets.length ? markets : [{ id: "in", label: "India", currency: INR }]
+
+  useEffect(() => {
+    if (!initial) return
+    if (initial.marketId) setMarketId(initial.marketId)
+    if (initial.templateId) setTemplateId(initial.templateId)
+    if (initial.input) setInput(initial.input)
+    setNameOverride(undefined)
+    setDescriptionOverride(undefined)
+    setStep(0)
+  }, [initial])
+
   async function submit(event: FormEvent) {
     event.preventDefault()
+    if (step < 2) { setStep(step + 1); return }
     if (!name.trim()) { setError("Give the case a name"); return }
     if (template.needs.includes("cost") && !costValid) { setError("Enter a cost increase between 1% and 50%"); return }
     setBusy(true); setError(undefined)
     try {
-      const created = await createWorkspace({ name: name.trim(), description: description.trim(), scenarios: template.build(input) })
+      const created = await createWorkspace({ name: name.trim(), description: description.trim(), market_id: marketId, scenarios: template.build(input) })
       navigate(`/w/${created.id}`)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not create the case")
       setBusy(false)
     }
   }
+
   return (
-    <form onSubmit={submit} className="space-y-4 rounded-xl border bg-card p-5" aria-label="New case">
-      <h2 className="font-display text-lg font-semibold">New case</h2>
-      <fieldset className="space-y-2 text-sm"><legend className="font-medium">What do you want to decide?</legend>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {TEMPLATES.map((t) => (
-            <label key={t.id} className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 hover:bg-secondary/60 ${t.id === templateId ? "border-primary ring-1 ring-primary" : ""}`}>
-              <input type="radio" name="template" value={t.id} checked={t.id === templateId} onChange={() => setTemplateId(t.id)} className="mt-1" />
-              <span><span className="font-medium">{t.title}</span><span className="block text-muted-foreground">{t.blurb}</span></span>
-            </label>
-          ))}
+    <form onSubmit={submit} className="space-y-5 overflow-hidden rounded-2xl border bg-card shadow-sm" aria-label="New case">
+      <div className="border-b bg-[linear-gradient(135deg,color-mix(in_oklab,var(--ink)_6%,white),color-mix(in_oklab,var(--primary)_8%,white))] px-5 py-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-display text-xl font-semibold tracking-tight">New case</h2>
+            <p className="mt-0.5 text-sm text-muted-foreground">One pricing question, locked to a market. The engine calculates every figure.</p>
+          </div>
+          {onCancel && <button type="button" onClick={onCancel} className="rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-secondary hover:text-foreground">Close</button>}
         </div>
-      </fieldset>
-      {template.needs.length > 0 && <div className="flex flex-wrap gap-4 text-sm">
-        {template.needs.includes("pack") && <label className="font-medium">Pack
-          <select aria-label="Pack" value={input.pack} onChange={(e) => setInput({ ...input, pack: e.target.value })} className="mt-1 block rounded-md border bg-background px-3 py-2 font-normal">
-            {PACKS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-          </select></label>}
-        {template.needs.includes("cost") && <label className="font-medium">Input cost increase (%)
-          <input type="number" min={1} max={50} step={1} value={Number.isFinite(input.costPct) ? input.costPct : ""} onChange={(e) => setInput({ ...input, costPct: e.target.valueAsNumber })} className="mt-1 block w-28 rounded-md border bg-background px-3 py-2 font-normal" />
-          <span className="mt-1 block text-xs font-normal text-muted-foreground">Applied to aluminium, PET and sugar</span></label>}
-      </div>}
-      {template.build(DEFAULT_INPUT).length > 1 && <p className="text-xs text-muted-foreground">Starts with {template.build(DEFAULT_INPUT).length} options, including one that loses profit and one outside our data that the engine refuses. You can change them all.</p>}
-      <label className="block text-sm font-medium">Name
-        <input value={name} onChange={(e) => setNameOverride(e.target.value)} maxLength={120} placeholder="e.g. Input cost response, Q3" className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm font-normal" /></label>
-      <label className="block text-sm font-medium">Business question <span className="font-normal text-muted-foreground">(what are you trying to decide?)</span>
-        <textarea value={description} onChange={(e) => setDescriptionOverride(e.target.value)} maxLength={500} rows={3} placeholder="e.g. Input costs are up 8%. Which price, pack and promotion moves protect gross profit without losing more than 5% volume?" className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm font-normal" /></label>
-      {error && <p role="alert" className="text-sm text-loss">{error}</p>}
-      <div className="flex items-center gap-2">
-        <button type="submit" disabled={busy} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:brightness-110 disabled:opacity-60">{busy ? "Creating…" : "Create case"}</button>
-        {onCancel && <button type="button" onClick={onCancel} className="rounded-md px-3 py-2 text-sm hover:bg-secondary">Cancel</button>}
+        <div className="mt-4 flex flex-wrap items-center gap-4" aria-label="Creation steps">
+          <StepDot n={1} label="Market" active={step === 0} done={step > 0} />
+          <span className="hidden h-px w-6 bg-border sm:block" aria-hidden />
+          <StepDot n={2} label="Decision" active={step === 1} done={step > 1} />
+          <span className="hidden h-px w-6 bg-border sm:block" aria-hidden />
+          <StepDot n={3} label="Details" active={step === 2} done={false} />
+        </div>
+      </div>
+
+      <div className="space-y-4 px-5 pb-5">
+        {step === 0 && <fieldset className="space-y-2 text-sm"><legend className="font-medium">Which market?</legend>
+          <p className="text-xs text-muted-foreground">Synthetic data for that market — not live FX of one India dataset. Locked after create.</p>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {marketList.map((m) => (
+              <label key={m.id} className={`flex cursor-pointer items-start gap-2 rounded-xl border p-3 transition hover:bg-secondary/60 ${m.id === marketId ? "border-primary bg-primary/5 ring-1 ring-primary" : ""}`}>
+                <input type="radio" name="market" value={m.id} checked={m.id === marketId} onChange={() => setMarketId(m.id)} className="mt-1" />
+                <span><span className="font-medium">{m.label}</span><span className="mt-0.5 block text-muted-foreground">{m.currency.code} ({m.currency.symbol})</span></span>
+              </label>
+            ))}
+          </div>
+        </fieldset>}
+
+        {step === 1 && <fieldset className="space-y-2 text-sm"><legend className="font-medium">What do you want to decide?</legend>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {TEMPLATES.map((t) => (
+              <label key={t.id} className={`flex cursor-pointer items-start gap-2 rounded-xl border p-3 transition hover:bg-secondary/60 ${t.id === templateId ? "border-primary bg-primary/5 ring-1 ring-primary" : ""}`}>
+                <input type="radio" name="template" value={t.id} checked={t.id === templateId} onChange={() => setTemplateId(t.id)} className="mt-1" />
+                <span><span className="font-medium">{t.title}</span><span className="mt-0.5 block text-muted-foreground">{t.blurb}</span></span>
+              </label>
+            ))}
+          </div>
+          {template.needs.length > 0 && <div className="flex flex-wrap gap-4 rounded-xl border bg-secondary/30 p-3">
+            {template.needs.includes("pack") && <label className="font-medium">Pack
+              <select aria-label="Pack" value={input.pack} onChange={(e) => setInput({ ...input, pack: e.target.value })} className="mt-1 block rounded-md border bg-background px-3 py-2 font-normal">
+                {PACKS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+              </select></label>}
+            {template.needs.includes("cost") && <label className="font-medium">Input cost increase (%)
+              <input type="number" min={1} max={50} step={1} value={Number.isFinite(input.costPct) ? input.costPct : ""} onChange={(e) => setInput({ ...input, costPct: e.target.valueAsNumber })} className="mt-1 block w-28 rounded-md border bg-background px-3 py-2 font-normal" />
+              <span className="mt-1 block text-xs font-normal text-muted-foreground">Aluminium, PET and sugar</span></label>}
+          </div>}
+        </fieldset>}
+
+        {step === 2 && <>
+          <div className="rounded-xl border bg-secondary/25 px-4 py-3 text-sm">
+            <p className="font-medium">Ready to create</p>
+            <p className="mt-1 text-muted-foreground">{marketList.find((m) => m.id === marketId)?.label ?? marketId} · {template.title} · starts with <span className="num font-semibold text-foreground">{optionCount}</span> option{optionCount === 1 ? "" : "s"}
+              {optionCount > 1 && " (includes a loser and a refused extreme where the template provides them)"}.</p>
+          </div>
+          <label className="block text-sm font-medium">Name
+            <input value={name} onChange={(e) => setNameOverride(e.target.value)} maxLength={120} placeholder="e.g. Input cost response, Q3" className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm font-normal" /></label>
+          <label className="block text-sm font-medium">Business question <span className="font-normal text-muted-foreground">(what are you trying to decide?)</span>
+            <textarea value={description} onChange={(e) => setDescriptionOverride(e.target.value)} maxLength={500} rows={3} placeholder="e.g. Input costs are up 8%. Which moves protect gross profit?" className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm font-normal" /></label>
+        </>}
+
+        {error && <p role="alert" className="text-sm text-loss">{error}</p>}
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          {step > 0 && <button type="button" onClick={() => setStep(step - 1)} className="rounded-md border px-3 py-2 text-sm font-medium hover:bg-secondary">Back</button>}
+          <button type="submit" disabled={busy} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:brightness-110 disabled:opacity-60">
+            {busy ? "Creating…" : step < 2 ? "Continue" : "Create case"}
+          </button>
+        </div>
       </div>
     </form>
   )
@@ -167,8 +265,10 @@ export function HomePage() {
   const { user } = useOutletContext<AppOutletContext>()
   const [workspaces, setWorkspaces] = useState<WorkspaceMeta[]>()
   const [summary, setSummary] = useState<HubSummary>()
+  const [markets, setMarkets] = useState<MarketInfo[]>([])
   const [showArchived, setShowArchived] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [starter, setStarter] = useState<Partial<{ marketId: string; templateId: string; input: TemplateInput }> | undefined>()
   const [error, setError] = useState<string>()
 
   const load = useCallback(() => {
@@ -176,37 +276,67 @@ export function HomePage() {
     getHubSummary().then(setSummary).catch(() => undefined)
   }, [showArchived])
   useEffect(() => { load() }, [load])
+  useEffect(() => { listMarkets().then(setMarkets).catch(() => setMarkets([{ id: "in", label: "India", currency: INR }])) }, [])
 
   const empty = workspaces !== undefined && workspaces.length === 0 && !showArchived
   const editor = canEdit(user.role)
+  const openForm = creating || empty
+
+  function beginStarter(s: Starter) {
+    setStarter({ marketId: s.marketId, templateId: s.templateId, input: s.input })
+    setCreating(true)
+  }
+
   return (
     <main className="mx-auto w-full max-w-[1200px] flex-1 space-y-8 px-5 py-8 md:px-8">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="font-display text-3xl font-semibold">Welcome back, {firstName(user.display_name)}</h1>
-          <p className="mt-1 max-w-3xl text-muted-foreground">{editor
-            ? "Each case is one pricing question about the Aurora brand. Open one to see where the brand stands, build and compare options, and get a recommendation. The assistant plans and explains; every number is calculated by the deterministic engine and checked by an auditor."
-            : "Each case is one pricing question about the Aurora brand. Open a case to read its decision brief: the recommendation, the options considered and what we refused to estimate."}</p>
+      <section className="relative overflow-hidden rounded-2xl border bg-card px-6 py-7 shadow-sm md:px-8">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(900px_280px_at_10%_-20%,color-mix(in_oklab,var(--primary)_18%,transparent),transparent_60%),radial-gradient(700px_240px_at_90%_0%,color-mix(in_oklab,var(--ink)_10%,transparent),transparent_55%)]" aria-hidden />
+        <div className="relative flex flex-wrap items-end justify-between gap-4">
+          <div className="max-w-2xl">
+            <p className="text-xs font-semibold uppercase tracking-wider text-primary">Revenue growth simulator</p>
+            <h1 className="mt-1 font-display text-3xl font-semibold tracking-tight md:text-4xl">Welcome back, {firstName(user.display_name)}</h1>
+            <p className="mt-2 text-muted-foreground">{editor
+              ? "Each case is one pricing question on Aurora. Start from an example, compare options the engine scores, then brief the room."
+              : "Open a case to read its decision brief: recommendation, options considered, and what we refused to estimate."}</p>
+          </div>
+          {editor && !openForm && <button type="button" onClick={() => { setStarter(undefined); setCreating(true) }} className="rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-sm hover:brightness-110">New case</button>}
         </div>
-        {editor && !creating && !empty && <button type="button" onClick={() => setCreating(true)} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:brightness-110">New case</button>}
-      </div>
+        {editor && !openForm && <div className="relative mt-5">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Try an example</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {STARTERS.map((s) => (
+              <button key={s.id} type="button" title={s.hint} onClick={() => beginStarter(s)}
+                className="rounded-full border bg-background/80 px-3 py-1.5 text-sm font-medium transition hover:border-primary/40 hover:bg-primary/5">
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>}
+      </section>
 
       {error && <div role="alert" className="rounded-md border border-loss/40 bg-loss/5 p-3 text-sm text-loss">{error}</div>}
-      {editor && (creating || empty) && <div className="max-w-3xl"><NewWorkspaceForm onCancel={empty ? undefined : () => setCreating(false)} /></div>}
+      {editor && openForm && <div className="max-w-3xl space-y-3">
+        {empty && <div className="flex flex-wrap gap-2">
+          {STARTERS.map((s) => (
+            <button key={s.id} type="button" title={s.hint} onClick={() => beginStarter(s)}
+              className="rounded-full border bg-card px-3 py-1.5 text-sm font-medium hover:border-primary/40 hover:bg-primary/5">{s.label}</button>
+          ))}
+        </div>}
+        <NewWorkspaceForm markets={markets} initial={starter} onCancel={empty ? undefined : () => { setCreating(false); setStarter(undefined) }} />
+      </div>}
 
       <section aria-label="Cases" className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="font-display text-xl font-semibold">Cases</h2>
+          <h2 className="font-display text-xl font-semibold tracking-tight">Cases</h2>
           {summary && summary.workspaces.archived > 0 && <label className="flex items-center gap-2 text-sm text-muted-foreground">
             <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Show archived ({summary.workspaces.archived})</label>}
         </div>
         {workspaces === undefined && !error && <p className="text-sm text-muted-foreground" role="status">Loading cases…</p>}
-        {empty && <p className="text-sm text-muted-foreground">{editor ? "No cases yet. Create your first one above." : "No cases have been shared yet. An analyst creates them; they will appear here."}</p>}
+        {empty && <p className="text-sm text-muted-foreground">{editor ? "No cases yet. Pick an example above or create your first case." : "No cases have been shared yet. An analyst creates them; they will appear here."}</p>}
         {workspaces && workspaces.length > 0 && <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {workspaces.map((workspace) => <WorkspaceCard key={workspace.id + workspace.updated_at + workspace.archived} workspace={workspace} onChanged={load} />)}
         </ul>}
       </section>
-
     </main>
   )
 }

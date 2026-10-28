@@ -5,6 +5,8 @@ export interface WorkspaceMeta {
   id: string
   name: string
   description: string
+  market_id: string
+  currency: { code: string; symbol: string; locale: string }
   created_by: string
   updated_by: string
   created_at: string
@@ -37,7 +39,7 @@ const json = (method: string, body: unknown): RequestInit => ({ method, body: JS
 
 export const listWorkspaces = (includeArchived = false) => request<WorkspaceMeta[]>("/workspaces" + (includeArchived ? "?include_archived=true" : ""))
 export const getWorkspace = (id: string) => request<WorkspaceMeta>("/workspaces/" + encodeURIComponent(id))
-export const createWorkspace = (body: { name: string; description?: string; scenarios?: ApiScenario[] | null }) =>
+export const createWorkspace = (body: { name: string; description?: string; market_id?: string; scenarios?: ApiScenario[] | null }) =>
   request<WorkspaceMeta>("/workspaces", json("POST", body))
 export const updateWorkspace = (id: string, body: { name?: string; description?: string; archived?: boolean }) =>
   request<WorkspaceMeta>("/workspaces/" + encodeURIComponent(id), json("PATCH", body))

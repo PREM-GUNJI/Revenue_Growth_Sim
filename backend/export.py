@@ -51,20 +51,43 @@ def _signed(value: float | None) -> str:
     return "n/a" if value is None else f"{value:+.1f}%"
 
 
-def _inr(value: float | None, *, signed: bool = False) -> str:
-    """Whole rupees with Indian digit grouping (₹2,35,586); `signed` adds an explicit + or -."""
+def _money(value: float | None, *, signed: bool = False) -> str:
+    """Whole currency units for the active market (INR uses Indian digit grouping)."""
+    from backend.markets.context import get_active_market
+    from backend.markets.packs import load_market
+    from backend.markets.context import DEFAULT_MARKET_ID
+
     if value is None:
         return "n/a"
-    digits = str(int(round(abs(value))))
-    if len(digits) > 3:
-        head, tail = digits[:-3], digits[-3:]
-        groups = []
-        while len(head) > 2:
-            groups.insert(0, head[-2:])
-            head = head[:-2]
-        digits = ",".join(([head] if head else []) + groups + [tail])
+    market = get_active_market() or load_market(DEFAULT_MARKET_ID)
+    code, symbol = market.currency.code, market.currency.symbol
+    amount = int(round(abs(value)))
+    if code == "INR":
+        digits = str(amount)
+        if len(digits) > 3:
+            head, tail = digits[:-3], digits[-3:]
+            groups = []
+            while len(head) > 2:
+                groups.insert(0, head[-2:])
+                head = head[:-2]
+            digits = ",".join(([head] if head else []) + groups + [tail])
+        formatted = digits
+    else:
+        formatted = f"{amount:,}"
     sign = "-" if round(value) < 0 else ("+" if signed and round(value) > 0 else "")
-    return f"{sign}₹{digits}"
+    return f"{sign}{symbol}{formatted}"
+
+
+def _inr(value: float | None, *, signed: bool = False) -> str:
+    """Backward-compatible alias; prefers the active market's currency."""
+    return _money(value, signed=signed)
+
+
+def _currency_code() -> str:
+    from backend.markets.context import DEFAULT_MARKET_ID, get_active_market
+    from backend.markets.packs import load_market
+
+    return (get_active_market() or load_market(DEFAULT_MARKET_ID)).currency.code
 
 
 def evaluate(scenario_dicts: list[dict[str, Any]]) -> tuple[list[Scenario], list[dict[str, Any]]]:
@@ -150,7 +173,7 @@ def build_deck(workspace_name: str, scenarios: list[Scenario], results: list[dic
     today = datetime.now(UTC)
 
     cover = deck.slides.add_slide(blank)
-    _text(cover, Inches(0.6), Inches(1.8), width, Inches(0.5), "Decision brief · Aurora · weekly INR", 16, color=MUTED)
+    _text(cover, Inches(0.6), Inches(1.8), width, Inches(0.5), f"Decision brief · Aurora · weekly {_currency_code()}", 16, color=MUTED)
     _text(cover, Inches(0.6), Inches(2.4), width, Inches(1.4), workspace_name, 40, True)
     frame = _text(cover, Inches(0.6), Inches(4.2), width, Inches(1.6),
                   f"Prepared by {author} on {today:%d %b %Y}", 14, color=GREY)
@@ -305,7 +328,7 @@ td,th{{border-bottom:1px solid #e5e5e5;padding:.55rem .4rem;text-align:left}}
 .foot{{color:#737373;font-size:.75rem;margin-top:2rem}}
 @media print{{body{{margin:0;max-width:none}}}}
 </style>
-<p class="eyebrow">Decision brief · Aurora · weekly INR</p>
+<p class="eyebrow">Decision brief · Aurora · weekly {_currency_code()}</p>
 <h1>{e(workspace_name)}</h1>
 <p class="meta">{e(author)} · {datetime.now(UTC):%Y-%m-%d} · Modeled, not a forecast</p>
 {rec_html}

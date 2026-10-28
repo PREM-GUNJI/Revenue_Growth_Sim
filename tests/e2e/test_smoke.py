@@ -112,6 +112,15 @@ def ui_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
             stop_process_tree(process)
 
 
+def finish_new_case(page: Page, name: str, question: str) -> None:
+    """New case is Market → Decision → Details; advance then create."""
+    page.get_by_role("button", name="Continue").click()
+    page.get_by_role("button", name="Continue").click()
+    page.get_by_label("Name", exact=True).fill(name)
+    page.get_by_label("Business question", exact=False).fill(question)
+    page.get_by_role("button", name="Create case").click()
+
+
 def test_ac024_loser_and_refusal_render_with_nearest_action(ui_url: str) -> None:
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
@@ -120,9 +129,8 @@ def test_ac024_loser_and_refusal_render_with_nearest_action(ui_url: str) -> None
         page.get_by_label("Email address").fill(TEST_EMAIL)
         page.get_by_label("Password", exact=True).fill(TEST_PASSWORD)
         page.get_by_role("button", name="Sign In").click()
-        page.get_by_label("Name", exact=True).fill("E2E case")  # a fresh database lands on the empty homepage
-        page.get_by_label("Business question", exact=False).fill("Which pack should take price?")
-        page.get_by_role("button", name="Create case").click()
+        # Fresh DB lands on the empty homepage with the new-case wizard already open.
+        finish_new_case(page, "E2E case", "Which pack should take price?")
         # Step 1 is the Situation: a baseline P&L in rupees, not a bare percentage.
         page.get_by_role("heading", name="Where Aurora stands today").wait_for(timeout=30_000)
         page.get_by_text("Which pack should take price?").first.wait_for()
@@ -202,14 +210,32 @@ def test_hub_audit_export_and_sign_out(ui_url: str) -> None:
         browser.close()
 
 
+def test_us_market_shows_dollar_currency(ui_url: str) -> None:
+    """AC-024 companion: a United States case formats money in USD, not rupees."""
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        page = browser.new_page()
+        sign_in(page, ui_url)
+        page.get_by_role("button", name="New case").click()
+        page.get_by_role("radio", name=re.compile("United States")).check()
+        finish_new_case(page, "US currency case", "Does the US market show dollars?")
+        page.get_by_role("heading", name="Where Aurora stands today").wait_for(timeout=30_000)
+        page.get_by_role("heading", name="Weekly profit and loss by pack").wait_for()
+        assert page.get_by_text("$").count() > 5
+        assert page.get_by_text("₹").count() == 0
+        browser.close()
+
+
 def test_take_price_template_shows_a_loser_and_a_refusal(ui_url: str) -> None:
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         page = browser.new_page()
         sign_in(page, ui_url)
         page.get_by_role("button", name="New case").click()
+        page.get_by_role("button", name="Continue").click()  # market → decision
         page.get_by_role("radio", name=re.compile("Should we take price")).check()
         page.get_by_label("Pack", exact=True).select_option("bottle_1500ml")
+        page.get_by_role("button", name="Continue").click()  # decision → details
         # The template fills the name and question; the user can still change them.
         assert page.get_by_label("Name", exact=True).input_value() == "Price rise on the 1.5 L"
         assert "1.5 L bottle" in page.get_by_label("Business question", exact=False).input_value()

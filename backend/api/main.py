@@ -36,6 +36,7 @@ from backend.api.schemas import (
     ResearchToScenariosIn,
     ScenarioIn,
     SensitivityIn,
+    SimilarRunsIn,
     SweepIn,
 )
 from backend.assumptions.assumptions import ASSUMPTIONS, OWN_ELASTICITY_BY_FORMAT, SKUS
@@ -69,6 +70,9 @@ from backend.research.personas import (
     persona_report,
     voice_personas,
 )
+from backend.markets.context import DEFAULT_MARKET_ID
+from backend.markets.deps import ActiveMarket, market_scope
+from backend.markets.packs import list_markets
 from backend.situation import router as situation_router
 from backend.workspaces import router as workspaces_router
 
@@ -78,6 +82,26 @@ app.include_router(workspaces_router)
 app.include_router(situation_router)
 app.include_router(hub_router)
 app.include_router(audit_router)
+
+
+@app.get("/markets")
+async def markets() -> list[dict]:
+    """Registered market packs (currency + synthetic data). Adding a market is a pack file, not a code change."""
+    return [m.as_public() for m in list_markets()]
+
+
+def _workspace_market_id(workspace_id: str | None) -> str:
+    if not workspace_id:
+        return DEFAULT_MARKET_ID
+    from backend.db import Workspace, get_session_factory
+    factory = get_session_factory()
+    if factory is None:
+        return DEFAULT_MARKET_ID
+    with factory() as session:
+        workspace = session.get(Workspace, workspace_id)
+        if workspace is None:
+            return DEFAULT_MARKET_ID
+        return getattr(workspace, "market_id", None) or DEFAULT_MARKET_ID
 API_EXPORT_VERSION = 1
 
 
@@ -277,8 +301,9 @@ def run_agent(request: AgentRunIn, user: AnalystUser) -> dict:
     trace_path = Path(os.getenv("AGENT_TRACE_DIR", "data/traces")) / (trace_id + ".jsonl")
     llm = None
     try:
-        llm = OpenAILLM()  # a missing key or model is a configuration error: report it as 503, not a crash
-        run = AgentOrchestrator().run(request.goal, llm, trace_path=trace_path)
+        with market_scope(_workspace_market_id(request.workspace_id)):
+            llm = OpenAILLM()  # a missing key or model is a configuration error: report it as 503, not a crash
+            run = AgentOrchestrator().run(request.goal, llm, trace_path=trace_path)
     except OpenAILLMError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
@@ -292,14 +317,15 @@ def run_agent(request: AgentRunIn, user: AnalystUser) -> dict:
 
 
 @app.get("/model/info")
-async def model_info() -> dict:
+async def model_info(_market: ActiveMarket) -> dict:
     return {"engine_version": ENGINE_VERSION, "model_spec_hash": spec_hash(),
             "data_hash": _data_hash(), "sku_count": len(SKUS),
-            "assumption_count": len(ASSUMPTIONS), "deterministic": True}
+            "assumption_count": len(ASSUMPTIONS), "deterministic": True,
+            "market_id": _market.id, "currency": _market.currency.as_dict()}
 
 
 @app.get("/envelope")
-async def envelope_info() -> dict:
+async def envelope_info(_market: ActiveMarket) -> dict:
     env = _support_envelope()
     return {"price_index_p1_p99": env.baselines.price_index_p1_p99,
             "promo_depth_observed": env.baselines.promo_depth_observed,
@@ -309,7 +335,8 @@ async def envelope_info() -> dict:
             "price_bin_edges": env.coverage.price_bin_edges.tolist(),
             "joint_coverage_counts": env.coverage.counts.tolist(),
             "minimum_local_rows": ASSUMPTIONS["A-022"].value,
-            "comfortable_local_rows": ASSUMPTIONS["A-023"].value}
+            "comfortable_local_rows": ASSUMPTIONS["A-023"].value,
+            "market_id": _market.id, "currency": _market.currency.as_dict()}
 
 
 def _result_view(result, scenario: Scenario) -> dict:
@@ -318,7 +345,7 @@ def _result_view(result, scenario: Scenario) -> dict:
 
 
 @app.post("/scenarios/evaluate")
-async def evaluate(request: EvaluateIn, response: Response) -> list[dict]:
+async def evaluate(request: EvaluateIn, response: Response, _market: ActiveMarket) -> list[dict]:
     draws = build_param_draws(k=request.k, seed=request.seed)
     started = time.perf_counter()
     results = evaluate_batch(request.scenarios, draws)
@@ -328,7 +355,7 @@ async def evaluate(request: EvaluateIn, response: Response) -> list[dict]:
 
 
 @app.post("/scenarios/nearest_supported")
-async def nearest(request: ScenarioIn) -> dict:
+async def nearest(request: ScenarioIn, _market: ActiveMarket) -> dict:
     env = _support_envelope()
     suggestion = nearest_supported(request.scenario, env)
     decision = env.check(suggestion.scenario)
@@ -339,8 +366,34 @@ async def nearest(request: ScenarioIn) -> dict:
             "distance": suggestion.distance, "status": decision.status}
 
 
+@app.post("/scenarios/similar")
+async def similar_runs(request: SimilarRunsIn) -> list[dict]:
+    """Rank past persisted runs by deterministic embeddings. Not nearest_supported."""
+    if request.scenario is None and not (request.query_text and request.query_text.strip()):
+        raise HTTPException(status_code=422, detail="provide scenario and/or query_text")
+    try:
+        from backend.similarity import find_similar_runs
+
+        return jsonable_encoder(
+            find_similar_runs(
+                scenario=request.scenario,
+                query_text=request.query_text,
+                limit=request.limit,
+                workspace_id=request.workspace_id,
+            )
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503, detail="PostgreSQL is unavailable or not configured"
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503, detail="Similarity search unavailable (is pgvector enabled?)"
+        ) from exc
+
+
 @app.post("/scenarios/sweep")
-async def sweep(request: SweepIn) -> list[dict]:
+async def sweep(request: SweepIn, _market: ActiveMarket) -> list[dict]:
     if request.sku_id not in {item["sku_id"] for item in SKUS}:
         raise HTTPException(status_code=422, detail="unknown sku_id")
     default = request.scenario.levers.get(request.sku_id, Lever())
@@ -362,12 +415,12 @@ async def sweep(request: SweepIn) -> list[dict]:
 
 
 @app.post("/scenarios/sensitivity")
-async def scenario_sensitivity(request: SensitivityIn) -> dict:
+async def scenario_sensitivity(request: SensitivityIn, _market: ActiveMarket) -> dict:
     return jsonable_encoder(sensitivity(request.scenarios, request.seed))
 
 
 @app.post("/scenarios/goal-seek")
-async def scenario_goal_seek(request: GoalSeekIn) -> dict:
+async def scenario_goal_seek(request: GoalSeekIn, _market: ActiveMarket) -> dict:
     try:
         return jsonable_encoder(goal_seek(request.max_volume_loss_pct, request.sku_ids, request.top))
     except ToolError as exc:
@@ -382,12 +435,12 @@ def _export_payload(scenario: Scenario, k: int, seed: int) -> dict:
 
 
 @app.post("/scenarios/export")
-async def export_scenario(request: ExportIn) -> dict:
+async def export_scenario(request: ExportIn, _market: ActiveMarket) -> dict:
     return _export_payload(request.scenario, request.k, request.seed)
 
 
 @app.post("/scenarios/import")
-async def import_scenario(request: ImportIn) -> dict:
+async def import_scenario(request: ImportIn, _market: ActiveMarket) -> dict:
     if request.export_version != API_EXPORT_VERSION:
         raise HTTPException(status_code=422, detail="unsupported export version")
     actual_id = scenario_id(expand_scenario(request.scenario))

@@ -1,5 +1,6 @@
 import { SupportBar } from "@/components/support-bar"
-import { PACKS, baselineLever, inr, packOf, packShort, signed, skuFor } from "@/lib/catalog"
+import { PACKS, baselineLever, packOf, packShort, signed, skuFor } from "@/lib/catalog"
+import { money } from "@/lib/currency"
 import { useDetailMode } from "@/lib/preferences"
 import { isCostReference } from "./helpers"
 import type { ApiScenario } from "@/lib/api"
@@ -12,11 +13,11 @@ const costShockText = (scenario: ApiScenario) => Object.entries(scenario.cost_sh
 const PRICE_MIN = 0.8, PRICE_MAX = 1.6, DEPTH_MAX = 50
 
 export function ScenarioBuilder() {
-  const { scenarios, setScenarios, activePack, setActivePack, addScenario, updateLever, envelope, situation } = useWorkspace()
+  const { scenarios, setScenarios, activePack, setActivePack, addScenario, updateLever, envelope, situation, currency } = useWorkspace()
   const [detail] = useDetailMode()
   const sku = skuFor(activePack)
   const ref = situation?.skus.find((s) => s.sku_id === sku)?.price
-  const price = (index: number) => ref === undefined ? `${signed((index - 1) * 100, 0)} on today's price` : inr(ref * index)
+  const price = (index: number) => ref === undefined ? `${signed((index - 1) * 100, 0)} on today's price` : money(ref * index, currency)
   // Where the engine has data for this pack: price between the 1st and 99th percentile of history, promotion at observed depths.
   const [priceLo, priceHi] = envelope?.price_index_p1_p99[sku] ?? [PRICE_MIN, PRICE_MAX]
   const depthHi = envelope ? Math.max(...envelope.depth_steps) : DEPTH_MAX

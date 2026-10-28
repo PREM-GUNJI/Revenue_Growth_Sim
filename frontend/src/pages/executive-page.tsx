@@ -6,7 +6,7 @@ import { useWorkspace } from "@/workspace/workspace-context"
 
 /** Boardroom view of the case: recommendation, a few options, caveats — no analyst chrome. */
 export function ExecutivePage() {
-  const { workspace, workspaceId, results, guardrail, loading } = useWorkspace()
+  const { workspace, workspaceId, results, guardrail, loading, currency } = useWorkspace()
   const [exportState, setExportState] = useState<{ busy: boolean; error?: string }>({ busy: false })
   const editor = canEdit(useRole())
 
@@ -42,6 +42,7 @@ export function ExecutivePage() {
       onExport={() => void download()}
       exportBusy={exportState.busy}
       exportError={exportState.error}
+      currency={currency}
     />
   )
 }

@@ -64,6 +64,8 @@ class Workspace(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     archived: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    # Market pack id (in / us / eu). Locked at create; drives currency and synthetic data.
+    market_id: Mapped[str] = mapped_column(String(16), default="in", server_default="in")
 
 
 class WorkspaceState(Base):
@@ -150,6 +152,20 @@ def save_run(record: dict[str, Any]) -> None:
     with factory() as session:
         session.add(ScenarioRun(**record))
         session.commit()
+    # Best-effort historical embedding for similarity search (never blocks persistence).
+    try:
+        from backend.similarity import upsert_run_embedding
+
+        upsert_run_embedding(
+            run_id=record["id"],
+            scenario_id=record["scenario_id"],
+            status=record["status"],
+            scenario=record["scenario"],
+            result=record.get("result"),
+            workspace_id=record.get("workspace_id"),
+        )
+    except Exception:
+        pass
 
 
 def list_runs(limit: int = 100) -> list[ScenarioRun]:

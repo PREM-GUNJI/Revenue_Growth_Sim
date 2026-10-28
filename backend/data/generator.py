@@ -53,8 +53,9 @@ from backend.assumptions.assumptions import (
     build_elasticity_matrix,
     promo_lift_log,
 )
+from backend.markets.context import DEFAULT_MARKET_ID, Market, get_active_market
 
-GENERATOR_VERSION = "1.1.0"  # 1.1.0: unit_price is in INR (was an unlabelled "$" scale)
+GENERATOR_VERSION = "1.2.0"  # 1.2.0: per-market packs (currency, list prices, volumes)
 
 DECLARED_GAPS = [
     "price_index > 1.06 and promo_depth_pct > 20 (for the same sku, region, week)",
@@ -89,7 +90,8 @@ def _simulate_promo_calendar(
             mechanic[t:end] = m
             if end < n_weeks:
                 lift = float(promo_lift_log(np.array([d]), np.array([m]))[0])
-                dip[end] = PULL_FORWARD_SHARE.value * lift
+                from backend.assumptions import registry
+                dip[end] = float(registry.get(PULL_FORWARD_SHARE.id).value) * lift
             t = end
         else:
             t += 1
@@ -147,11 +149,42 @@ def _assert_no_gap_violations(df: pd.DataFrame) -> None:
         raise AssertionError(f"{int(violated.sum())} rows violate the declared GAP-1")
 
 
-def generate(seed: int) -> pd.DataFrame:
-    """Builds the full synthetic scanner dataset for the given seed."""
+def generator_seed_for(market: Market | None) -> dict:
+    """Base GENERATOR_SEED with optional per-market volume and list-price overrides."""
+    seed = dict(GENERATOR_SEED)
+    if market is None:
+        return seed
+    overrides = market.generator or {}
+    for key in ("base_volume_by_format", "list_price_by_format", "brand_price_multiplier"):
+        if key in overrides and overrides[key]:
+            seed[key] = {**seed.get(key, {}), **overrides[key]}
+    for key in ("seasonality_amplitude", "region_week_noise_sigma", "store_noise_sigma",
+                "price_index_walk_sigma"):
+        if key in overrides:
+            seed[key] = overrides[key]
+    if "price_index_bounds" in overrides:
+        seed["price_index_bounds"] = tuple(overrides["price_index_bounds"])
+    # Keep list prices aligned with money overlays when the pack sets shelf prices.
+    if market.money:
+        fmt_to_aid = {
+            "can_330ml": "A-028", "pet_500ml": "A-029",
+            "bottle_1500ml": "A-030", "multipack_6x330ml": "A-031",
+        }
+        prices = dict(seed["list_price_by_format"])
+        for fmt, aid in fmt_to_aid.items():
+            if aid in market.money:
+                prices[fmt] = market.money[aid]
+        seed["list_price_by_format"] = prices
+    return seed
+
+
+def generate(seed: int, market: Market | None = None) -> pd.DataFrame:
+    """Builds the full synthetic scanner dataset for the given seed and market pack."""
+    active = market if market is not None else get_active_market()
+    gen_seed = generator_seed_for(active)
     rng = np.random.default_rng(seed)
     E = build_elasticity_matrix()
-    amplitude = GENERATOR_SEED["seasonality_amplitude"]
+    amplitude = gen_seed["seasonality_amplitude"]
     seasonality = amplitude * np.sin(2 * np.pi * np.arange(N_WEEKS) / 52.0)
 
     rows: list[pd.DataFrame] = []
@@ -162,10 +195,10 @@ def generate(seed: int) -> pd.DataFrame:
         promo = promo_lift_log(series.depth_pct, series.mechanic)  # (N_SKUS, N_WEEKS)
 
         region_week_noise = rng.normal(
-            0.0, GENERATOR_SEED["region_week_noise_sigma"], size=(N_SKUS, N_WEEKS)
+            0.0, gen_seed["region_week_noise_sigma"], size=(N_SKUS, N_WEEKS)
         )
 
-        base_vol = np.array([GENERATOR_SEED["base_volume_by_format"][s["format"]] for s in SKUS])
+        base_vol = np.array([gen_seed["base_volume_by_format"][s["format"]] for s in SKUS])
         ln_q = (
             np.log(base_vol)[:, None]
             + cross.T  # (N_SKUS, N_WEEKS)
@@ -178,13 +211,13 @@ def generate(seed: int) -> pd.DataFrame:
 
         for si, sku in enumerate(SKUS):
             unit_price = (
-                GENERATOR_SEED["list_price_by_format"][sku["format"]]
-                * GENERATOR_SEED["brand_price_multiplier"][sku["brand"]]
+                gen_seed["list_price_by_format"][sku["format"]]
+                * gen_seed["brand_price_multiplier"][sku["brand"]]
                 * series.price_index[si]
             )
             for store in range(1, STORES_PER_REGION + 1):
                 store_noise = np.exp(
-                    rng.normal(0.0, GENERATOR_SEED["store_noise_sigma"], size=N_WEEKS)
+                    rng.normal(0.0, gen_seed["store_noise_sigma"], size=N_WEEKS)
                 )
                 units = np.maximum(0, np.round(expected_q[si] * store_noise)).astype(np.int64)
                 rows.append(
@@ -210,19 +243,25 @@ def generate(seed: int) -> pd.DataFrame:
     return df
 
 
-def write_dataset(seed: int, out_dir: Path) -> dict:
+def write_dataset(seed: int, out_dir: Path, market: Market | None = None) -> dict:
     """Generates, writes `data.parquet` + `data_manifest.json` to out_dir."""
+    from backend.markets.context import use_market
+
     out_dir.mkdir(parents=True, exist_ok=True)
-    df = generate(seed)
+    with use_market(market):
+        df = generate(seed, market=market)
 
     parquet_path = out_dir / "data.parquet"
     df.to_parquet(parquet_path, index=False, engine="pyarrow")
     data_sha256 = hashlib.sha256(parquet_path.read_bytes()).hexdigest()
 
+    currency = market.currency.code if market is not None else CURRENCY_CODE
+    market_id = market.id if market is not None else DEFAULT_MARKET_ID
     manifest = {
         "seed": seed,
         "generator_version": GENERATOR_VERSION,
-        "currency": CURRENCY_CODE,
+        "market_id": market_id,
+        "currency": currency,
         "row_count": len(df),
         "data_sha256": data_sha256,
         "declared_gaps": DECLARED_GAPS,
@@ -240,7 +279,11 @@ def write_dataset(seed: int, out_dir: Path) -> dict:
 if __name__ == "__main__":
     import sys
 
+    from backend.markets.packs import load_market
+
     seed = int(sys.argv[1]) if len(sys.argv) > 1 else 42
     out_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("data")
-    m = write_dataset(seed, out_dir)
+    market_id = sys.argv[3] if len(sys.argv) > 3 else DEFAULT_MARKET_ID
+    market = load_market(market_id)
+    m = write_dataset(seed, out_dir, market=market)
     print(json.dumps(m, indent=2))

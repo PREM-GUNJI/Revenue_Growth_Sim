@@ -1,0 +1,11 @@
+# India market — matches the base assumptions registry (INR). Empty money/demand
+# overlays keep India hashes and results identical to the pre-multi-market engine.
+id: in
+label: India
+currency:
+  code: INR
+  symbol: "₹"
+  locale: en-IN
+money: {}
+demand: {}
+generator: {}

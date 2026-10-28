@@ -9,8 +9,12 @@ def test_initial_migration_creates_schema_once():
     engine = create_engine("sqlite://")
 
     assert upgrade_database(engine) == ["001_initial_scenario_runs", "002_users", "003_workspaces", "004_ai_usage_cached_tokens",
-                                       "005_user_roles"]
+                                       "005_user_roles", "006_workspace_market",
+                                       "007_pgvector_run_embeddings"]
     assert upgrade_database(engine) == []
 
     tables = set(inspect(engine).get_table_names())
-    assert {"schema_migrations", "scenario_runs", "users", "workspaces", "workspace_state", "activity_log", "ai_usage"} <= tables
+    assert {
+        "schema_migrations", "scenario_runs", "users", "workspaces", "workspace_state",
+        "activity_log", "ai_usage", "run_embeddings",
+    } <= tables

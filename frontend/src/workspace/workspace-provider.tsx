@@ -7,6 +7,7 @@ import { baselineLever, newScenario, skuFor } from "@/lib/catalog"
 import type { Assumption, ScenarioResult } from "@/lib/types"
 import { getWorkspace, getWorkspaceScenarios, saveWorkspaceScenarios, updateWorkspace } from "@/lib/workspaces"
 import type { WorkspaceMeta } from "@/lib/workspaces"
+import { asCurrency, INR } from "@/lib/currency"
 import { asUiAssumption, pickBest, toUiResults, withCaseCosts } from "./helpers"
 import { WorkspaceContext } from "./workspace-context"
 import type { SaveState, WorkspaceStatus } from "./workspace-context"
@@ -94,16 +95,18 @@ export function WorkspaceProvider({ workspaceId, children }: { workspaceId: stri
     setWorkspace(await updateWorkspace(workspaceId, { name }))
   }
 
+  const marketId = workspace?.market_id ?? "in"
+
   // Re-evaluate shortly after any edit; ignore responses that arrive out of order.
   useEffect(() => {
-    if (status !== "ready" || !situation) return
+    if (status !== "ready" || !situation || !workspace) return
     const ticket = ++latest.current
     const timer = setTimeout(async () => {
       setLoading(true)
       setError(undefined)
       const started = performance.now()
       try {
-        const raw = await evaluateScenarios(scenarios, 200, 42, setEngineMs)
+        const raw = await evaluateScenarios(scenarios, 200, 42, setEngineMs, marketId)
         if (ticket !== latest.current) return
         setRawResults(raw)
         setResults(toUiResults(raw, scenarios, situation.totals.focal))
@@ -115,18 +118,19 @@ export function WorkspaceProvider({ workspaceId, children }: { workspaceId: stri
       }
     }, 350)
     return () => clearTimeout(timer)
-  }, [scenarios, status, situation])
+  }, [scenarios, status, situation, workspace, marketId])
 
   useEffect(() => {
+    if (status !== "ready" || !workspace) return
     let active = true
-    Promise.all([getAssumptions(), getModelInfo(), getEnvelope(), getEvidenceDefaults(), getSituation()])
+    Promise.all([getAssumptions(), getModelInfo(marketId), getEnvelope(marketId), getEvidenceDefaults(), getSituation(marketId)])
       .then(([items, info, env, defaults, where]) => {
         if (!active) return
         setAssumptions(items.map(asUiAssumption)); setModelInfo(info); setEnvelope(env); setEvidenceDefaults(defaults); setSituation(where)
       })
       .catch((cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : "Backend unavailable") })
     return () => { active = false }
-  }, [])
+  }, [status, workspace, marketId])
   useEffect(() => {
     if (!notice) return
     const timer = setTimeout(() => setNotice(undefined), 7000)
@@ -143,7 +147,7 @@ export function WorkspaceProvider({ workspaceId, children }: { workspaceId: stri
       const grid = depths.flatMap((depth) => prices.map((price) => newScenario("Sweep price " + price + " promo " + depth, {
         [sku]: { price_index: price, promo_depth_pct: depth, mechanic: depth === 0 ? "none" : "TPR", promo_weeks_per_month: depth === 0 ? 0 : 2 },
       })))
-      const evaluated = await evaluateScenarios(grid, 0, 42)
+      const evaluated = await evaluateScenarios(grid, 0, 42, undefined, marketId)
       setHeatmap(evaluated.map((item, i) => ({
         price: prices[i % prices.length], depth: depths[Math.floor(i / prices.length)], status: item.status,
         gp: item.status === "REFUSED" ? null : item.focal?.gp?.value ?? null,
@@ -179,7 +183,7 @@ export function WorkspaceProvider({ workspaceId, children }: { workspaceId: stri
     const index = results.findIndex((item) => item.scenarioId === scenarioId)
     if (index < 0) return
     try {
-      const nearest = await nearestSupported(scenarios[index])
+      const nearest = await nearestSupported(scenarios[index], marketId)
       setScenarios((current) => [...current, { ...nearest.scenario, name: "Nearest supported to " + scenarios[index].name, source: scenarios[index].source }])
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not find supported alternative")
@@ -209,10 +213,11 @@ export function WorkspaceProvider({ workspaceId, children }: { workspaceId: stri
   const supportedCount = results.filter((item) => item.status !== "REFUSED").length
   const refusedCount = results.length - supportedCount
   const best = pickBest(results, guardrail)
+  const currency = asCurrency(workspace?.currency ?? situation?.currency ?? INR)
 
   return <WorkspaceContext.Provider value={{
     workspaceId, workspace, status, saveState, renameWorkspace, scenarios, setScenarios, results, rawResults, heatmap, heatmapLoading, assumptions, envelope, evidenceDefaults,
-    modelInfo, computeMs, engineMs, situation, loading, error, activePack, setActivePack, guardrail, setGuardrail, notice, setNotice, generateHeatmap,
+    modelInfo, computeMs, engineMs, situation, currency, loading, error, activePack, setActivePack, guardrail, setGuardrail, notice, setNotice, generateHeatmap,
     updateLever, addScenario, addExternal, addNearestSupported, supportedCount, refusedCount, best,
     assumptionsOpen, setAssumptionsOpen, assumptionFocus, openAssumptions,
     agent: { goal: agentGoal, setGoal: setAgentGoal, run: agentRun, error: agentError, loading: agentLoading, ask: askAgent, open: assistantOpen, setOpen: setAssistantOpen },

@@ -3,9 +3,11 @@ import { DivBar, LineChart, type ChartPoint } from "@/components/bars"
 import { CandidateTable, SyntheticBanner } from "@/components/evidence-parts"
 import { evaluateScenarios, researchToScenarios } from "@/lib/api"
 import type { ApiLever, ApiScenario, ApiScenarioResult, EnvelopeInfo, EvidenceDefaults, ResearchBridgeResponse } from "@/lib/api"
-import { BRAND, PACKS, baselineLever, changePct, compact, inr, newScenario, packLabel, rupees, signed, signedRupees, skuFor, tone, totals } from "@/lib/catalog"
+import { BRAND, PACKS, baselineLever, changePct, compact, newScenario, packLabel, rupees, signed, signedRupees, skuFor, tone, totals } from "@/lib/catalog"
+import { money as moneyPrice } from "@/lib/currency"
 import { useDetailMode } from "@/lib/preferences"
 import type { Assumption } from "@/lib/types"
+import { useWorkspace } from "@/workspace/workspace-context"
 
 type Add = (scenario: ApiScenario) => void
 const series = [
@@ -16,13 +18,15 @@ const series = [
 
 /** Evaluate a grid of scenarios (point estimates) whenever the base scenario or grid changes. */
 function useSweep(scenarios: ApiScenario[]) {
+  const { workspace } = useWorkspace()
+  const marketId = workspace?.market_id ?? "in"
   const [results, setResults] = useState<ApiScenarioResult[]>()
   const [loading, setLoading] = useState(false)
-  const key = JSON.stringify(scenarios)
+  const key = JSON.stringify(scenarios) + "|" + marketId
   useEffect(() => {
     let live = true
     setLoading(true)
-    evaluateScenarios(scenarios, 0)
+    evaluateScenarios(scenarios, 0, 42, undefined, marketId)
       .then((r) => { if (live) setResults(r) })
       .catch(() => { if (live) setResults(undefined) })
       .finally(() => { if (live) setLoading(false) })
@@ -55,6 +59,8 @@ function PricePanel({ base, pack, baseline, envelope, defaults, assumptions, onA
   assumptions: Assumption[]; onAdd: Add
 }) {
   const sku = skuFor(pack), ref = defaults.reference_prices[pack]
+  const { currency } = useWorkspace()
+  const price = (v: number) => moneyPrice(v, currency)
   const [detail] = useDetailMode()
   const [lo, hi] = envelope.price_index_p1_p99[sku] ?? [0.9, 1.1]
   const xs = useMemo(() => Array.from({ length: 11 }, (_, i) => Math.round((lo - 0.15 * (hi - lo) + (i / 10) * 1.3 * (hi - lo)) * 1000) / 1000), [lo, hi])
@@ -71,17 +77,17 @@ function PricePanel({ base, pack, baseline, envelope, defaults, assumptions, onA
         <p className="num mt-1 text-2xl font-semibold">{elasticity?.value ?? "…"}</p>
         <p className="mt-1 text-xs text-muted-foreground">{elasticity ? `Raise the price 1% and you sell about ${Math.abs(Number(elasticity.value)).toFixed(1)}% fewer, before shoppers switch packs.` : ""}{detail && elasticity ? ` ${elasticity.id}, plausible range ${elasticity.validRange}.` : ""}</p></div>
       <div className="rounded-lg border bg-card p-4"><p className="text-xs text-muted-foreground">Today's shelf price, {packLabel(pack)}</p>
-        <p className="num mt-1 text-2xl font-semibold">{inr(ref)}</p>
-        <p className="mt-1 text-xs text-muted-foreground">We have data between {inr(ref * lo)} and {inr(ref * hi)}; outside that we won't guess.</p></div>
+        <p className="num mt-1 text-2xl font-semibold">{price(ref)}</p>
+        <p className="mt-1 text-xs text-muted-foreground">We have data between {price(ref * lo)} and {price(ref * hi)}; outside that we won't guess.</p></div>
       <div className="rounded-lg border bg-card p-4"><p className="text-xs text-muted-foreground">Price in this option</p>
-        <p className="num mt-1 text-2xl font-semibold">{inr(ref * lever.price_index)}</p>
+        <p className="num mt-1 text-2xl font-semibold">{price(ref * lever.price_index)}</p>
         <p className="mt-1 text-xs text-muted-foreground">{signed((lever.price_index - 1) * 100)} on today's price in &ldquo;{base.name}&rdquo;.</p></div>
     </div>
     <section className="rounded-lg border bg-card p-5">
       <h3 className="font-display text-lg font-semibold">Demand, revenue and margin response</h3>
       <p className="mb-2 text-xs text-muted-foreground">Engine results for {packLabel(pack)} price changes against the baseline. Hatched columns are refused: no numbers exist there. Dashed lines mark synthetic willingness-to-pay candidates.</p>
       <div className={`overflow-x-auto transition-opacity ${loading ? "opacity-60" : ""}`}>
-        <LineChart ariaLabel="Price response curves" points={sweepPoints(xs, results, baseline)} series={series} markers={markers} xLabel={`${packLabel(pack)} price`} xFormat={(x) => inr(x * ref)} /></div>
+        <LineChart ariaLabel="Price response curves" points={sweepPoints(xs, results, baseline)} series={series} markers={markers} xLabel={`${packLabel(pack)} price`} xFormat={(x) => price(x * ref)} /></div>
     </section>
     <section className="space-y-3">
       <div><h3 className="font-display text-lg font-semibold">Consumer evidence to candidate price to modeled outcome</h3>
@@ -97,6 +103,8 @@ function PricePanel({ base, pack, baseline, envelope, defaults, assumptions, onA
 function PackPanel({ scenario, result, baseline, defaults }: {
   scenario: ApiScenario; result: ApiScenarioResult; baseline: ApiScenarioResult; defaults: EvidenceDefaults
 }) {
+  const { currency } = useWorkspace()
+  const price = (v: number) => moneyPrice(v, currency)
   if (result.status === "REFUSED") return <p className="rounded-lg border border-dashed border-loss/40 bg-card p-5 text-sm">This scenario was refused, so there is no pack movement to show. Choose a supported scenario.</p>
   const rows = PACKS.map((p) => {
     const sku = skuFor(p.id), b = baseline.volume[sku]?.value ?? 0, v = result.volume[sku]?.value ?? 0
@@ -116,7 +124,7 @@ function PackPanel({ scenario, result, baseline, defaults }: {
         <thead><tr className="text-left text-xs text-muted-foreground"><th className="py-2 pr-3 font-normal">Pack</th><th className="px-3 font-normal">Shelf price</th><th className="px-3 font-normal">Per litre</th><th className="px-3 text-right font-normal">Volume now</th><th className="px-3 text-right font-normal">Baseline</th><th className="w-56 px-3 font-normal">Change</th></tr></thead>
         <tbody>{rows.map((r) => <tr key={r.id} className="border-t">
           <td className="py-3 pr-3 font-medium">{r.label}{r.promo > 0 && <span className="ml-2 rounded bg-edge/15 px-1.5 py-0.5 text-xs text-edge">{r.promo}% promo</span>}</td>
-          <td className="num px-3">{inr(r.price)}</td><td className="num px-3">{inr(r.perLitre)}</td>
+          <td className="num px-3">{price(r.price)}</td><td className="num px-3">{price(r.perLitre)}</td>
           <td className="num px-3 text-right">{compact(r.v)}</td><td className="num px-3 text-right text-muted-foreground">{compact(r.b)}</td>
           <td className="px-3"><div className={`num mb-1 font-semibold ${tone(r.pct)}`}>{signed(r.pct)}</div><DivBar value={r.pct} max={max} /></td></tr>)}
           <tr className="border-t text-muted-foreground"><td className="py-3 pr-3">Competitor brands <span className="text-xs">(cross-price effect only)</span></td><td colSpan={2} /><td className="num px-3 text-right">{compact(otherNow)}</td><td className="num px-3 text-right">{compact(otherBase)}</td>
@@ -124,16 +132,17 @@ function PackPanel({ scenario, result, baseline, defaults }: {
     </section>
     <section className="grid gap-4 md:grid-cols-4">
       {[["Volume gained by packs", `+${compact(gained)}`, "text-gain"], ["Volume lost by packs", `−${compact(lost)}`, "text-loss"],
-        [`${BRAND} volume`, signed(changePct(tn.volume, tb.volume)), tone(changePct(tn.volume, tb.volume))], [`${BRAND} gross profit`, signed(changePct(tn.gp, tb.gp)) + " (" + signedRupees(tn.gp - tb.gp) + " a week)", tone(changePct(tn.gp, tb.gp))]]
+        [`${BRAND} volume`, signed(changePct(tn.volume, tb.volume)), tone(changePct(tn.volume, tb.volume))], [`${BRAND} gross profit`, signed(changePct(tn.gp, tb.gp)) + " (" + signedRupees(tn.gp - tb.gp, currency) + " a week)", tone(changePct(tn.gp, tb.gp))]]
         .map(([label, value, cls]) => <div key={label} className="rounded-lg border bg-card p-4"><p className="text-xs text-muted-foreground">{label}</p><p className={`num mt-1 text-2xl font-semibold ${cls}`}>{value}</p></div>)}
     </section>
-    <p className="text-sm text-muted-foreground">Cross-pack effect on gross profit in this scenario: <span className={`num font-medium ${tone(tn.crossPack)}`}>{signedRupees(tn.crossPack)}</span> a week. Volume that moves from a high-margin pack to a low-margin one can leave total volume flat while profit falls.</p>
+    <p className="text-sm text-muted-foreground">Cross-pack effect on gross profit in this scenario: <span className={`num font-medium ${tone(tn.crossPack)}`}>{signedRupees(tn.crossPack, currency)}</span> a week. Volume that moves from a high-margin pack to a low-margin one can leave total volume flat while profit falls.</p>
   </div>
 }
 
 // ------------------------------------------------------------ Promotion
 
 function PromoPanel({ base, pack, baseline, envelope }: { base: ApiScenario; pack: string; baseline: ApiScenarioResult; envelope: EnvelopeInfo }) {
+  const { currency } = useWorkspace()
   const mechanics = envelope.mechanics.filter((m) => m !== "none")
   const [mechanic, setMechanic] = useState(mechanics[0] ?? "TPR")
   const [weeks, setWeeks] = useState(2)
@@ -180,11 +189,11 @@ function PromoPanel({ base, pack, baseline, envelope }: { base: ApiScenario; pac
           return <tr key={r.d} className="border-t"><td className="num py-2 font-medium">{r.d}%</td>
             <td className={`num px-3 text-right ${tone(r.volume)}`}>{signed(r.volume)}</td>
             <td className="num px-3 text-right text-muted-foreground">{step === undefined ? "n/a" : signed(step)}</td>
-            <td className="num px-3 text-right">{r.spend ? rupees(r.spend) : "₹0"}</td>
+            <td className="num px-3 text-right">{r.spend ? rupees(r.spend, currency) : `${currency.symbol}0`}</td>
             <td className={`num px-3 text-right ${tone(r.nsv)}`}>{signed(r.nsv)}</td>
             <td className={`num px-3 text-right font-semibold ${tone(r.gp)}`}>{signed(r.gp)}</td></tr>
         })}</tbody></table>
-      <p className="mt-3 text-xs text-muted-foreground">&ldquo;Added by this step&rdquo; shrinks as depth rises: promotion response saturates, while the price given away keeps growing. Trade spend is the extra spend against the baseline, in rupees a week.</p>
+      <p className="mt-3 text-xs text-muted-foreground">&ldquo;Added by this step&rdquo; shrinks as depth rises: promotion response saturates, while the price given away keeps growing. Trade spend is the extra spend against the baseline, in {currency.code} a week.</p>
     </section>
   </div>
 }
